@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>TestPlugin</RootNamespace>
+    <AssemblyName>TestPlugin</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="VPet-Simulator.Windows.Interface">
+      <HintPath>$(VPET_PATH)\VPet-Simulator.Windows.Interface.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

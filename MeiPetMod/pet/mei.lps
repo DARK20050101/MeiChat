@@ -1,0 +1,83 @@
+pet#mei:|intor#雷电芽衣（Raiden Mei）- 崩坏3 Q版 SD 角色:|path#mei:|petname#芽衣:|
+
+tag#all,mei,honkai,girl:|
+
+///触摸区域（需根据实际精灵图调整坐标）
+touchhead:|px#159:|py#16:|sw#189:|sh#178:|
+touchbody:|px#166:|py#206:|sw#163:|sh#136:|
+touchraised:|happy_px#0:|happy_py#50:|happy_sw#500:|happy_sh#200:|
+  nomal_px#0:|nomal_py#50:|nomal_sw#500:|nomal_sh#200:|
+  poorcondition_px#0:|poorcondition_py#50:|poorcondition_sw#500:|poorcondition_sh#200:|
+  ill_px#0:|ill_py#200:|ill_sw#500:|ill_sh#300:|
+pinch:|px#149:|py#128:|sw#56:|sh#59:|
+
+raisepoint:|happy_x#290:|happy_y#128:|
+  nomal_x#290:|nomal_y#128:|
+  poorcondition_x#225:|poorcondition_y#115:|
+  ill_x#225:|ill_y#115:|
+
+///==========================================
+/// 芽衣的工作（模拟崩坏3女武神训练/战斗）
+///==========================================
+work:|Type#Work:|Name#剑道训练:|MoneyBase#8:|Graph#workone:|
+  StrengthFood#3.5:|StrengthDrink#2.5:|Feeling#1:|Time#60:|
+  FinishBonus#0.1:|BorderBrush#000000:|Background#413d39:|
+  ButtonBackground#322e2b:|ButtonForeground#FFFFFF:|Foreground#ccbdad:|
+  Left#113:|Top#315:|Width#280:|
+
+work:|Type#Work:|Name#出击任务:|MoneyBase#16:|Graph#workclean:|
+  StrengthFood#5:|StrengthDrink#5:|Feeling#2.5:|Time#90:|FinishBonus#0.2:|
+  LevelLimit#10:|BorderBrush#000000:|Background#413d39:|
+  ButtonBackground#322e2b:|ButtonForeground#FFFFFF:|Foreground#ccbdad:|
+  Left#113:|Top#315:|Width#280:|
+
+work:|Type#Work:|Name#作战报告:|MoneyBase#28:|Graph#worktwo:|
+  StrengthFood#5:|StrengthDrink#10:|Feeling#4:|Time#180:|FinishBonus#0.25:|
+  LevelLimit#20:|BorderBrush#000000:|Background#413d39:|
+  ButtonBackground#322e2b:|ButtonForeground#FFFFFF:|Foreground#ccbdad:|
+  Left#113:|Top#315:|Width#280:|
+
+work:|Type#Study:|Name#崩坏学:|MoneyBase#80:|Graph#study:|
+  StrengthFood#2:|StrengthDrink#2:|Feeling#3:|Time#45:|FinishBonus#0.2:|
+  BorderBrush#000000:|Background#413d39:|
+  ButtonBackground#322e2b:|ButtonForeground#FFFFFF:|Foreground#ccbdad:|
+  Left#113:|Top#315:|Width#280:|
+
+work:|Type#Play:|Name#烹饪:|MoneyBase#18:|Graph#playone:|
+  StrengthFood#1:|StrengthDrink#1.5:|Feeling#-1:|Time#30:|FinishBonus#0.2:|
+  BorderBrush#000000:|Background#413d39:|
+  ButtonBackground#322e2b:|ButtonForeground#FFFFFF:|Foreground#ccbdad:|
+  Left#113:|Top#315:|Width#280:|
+
+work:|Type#Play:|Name#逛街:|MoneyBase#10:|StrengthFood#1:|StrengthDrink#1:|
+  Feeling#0.5:|Time#10:|FinishBonus#0.2:|LevelLimit#12:|
+  BorderBrush#000000:|Background#413d39:|
+  ButtonBackground#322e2b:|ButtonForeground#FFFFFF:|Foreground#ccbdad:|
+  Left#150:|Top#360:|Width#200:|Graph#ropeskipping:|
+
+///==========================================
+/// 移动动画（需替换为芽衣的行走/爬行等动画名）
+///==========================================
+move:|graph#climb.left:|LocateType#Left:|LocateLength#145:|
+  TriggerLeft#100:|TriggerTop#200:|TriggerType#65:|
+  CheckType#64:|CheckTop#100:|SpeedY#-10:|Distance#7:|ModeType#14:|
+
+move:|graph#climb.right:|LocateType#Right:|LocateLength#185:|
+  TriggerRight#100:|TriggerTop#200:|TriggerType#66:|
+  CheckType#64:|CheckTop#100:|SpeedY#-10:|Distance#7:|ModeType#14:|
+
+move:|graph#walk.left:|TriggerLeft#200:|TriggerType#16:|
+  CheckLeft#100:|CheckType#16:|SpeedX#-14:|Distance#7:|ModeType#12:|
+
+move:|graph#walk.right:|TriggerRight#200:|TriggerType#32:|
+  CheckRight#100:|CheckType#32:|SpeedX#14:|Distance#7:|ModeType#12:|
+
+///==========================================
+/// 动画状态时长/间隔（默认值，后续可调）
+///==========================================
+duration:|state#10:|squat#20:|boring#20:|sleep#20:|
+
+///==========================================
+/// 生日/侧边等配置
+///==========================================
+side:|left#219:|right#281:|

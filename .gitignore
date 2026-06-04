@@ -1,0 +1,15 @@
+# .NET build output
+bin/
+obj/
+*.user
+*.suo
+
+# VS Code
+.vscode/
+
+# IDE
+*.sln.DotSettings.user
+
+# Test plugin
+TestPlugin/bin/
+TestPlugin/obj/
