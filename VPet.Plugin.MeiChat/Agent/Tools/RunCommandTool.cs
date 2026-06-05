@@ -96,7 +96,28 @@ namespace VPet.Plugin.MeiChat.Agent.Tools
 
                 if (exitCode != 0)
                 {
-                    return ToolResult.Fail($"命令执行失败（退出码: {exitCode}）：\n{output}");
+                    // 提取 stderr 行以便 AI 快速定位错误
+                    var errorLines = new StringBuilder();
+                    foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        if (line.Contains("[stderr]") ||
+                            line.Contains("error") || line.Contains("Error") ||
+                            line.Contains("FAILED") || line.Contains("失败"))
+                        {
+                            errorLines.AppendLine(line.Trim());
+                        }
+                    }
+
+                    var errorDetail = new StringBuilder();
+                    errorDetail.AppendLine("❌ 命令执行失败");
+                    errorDetail.AppendLine($"命令: {command}");
+                    errorDetail.AppendLine($"退出码: {exitCode}");
+                    if (errorLines.Length > 0)
+                        errorDetail.AppendLine($"关键错误:\n{errorLines}");
+                    errorDetail.AppendLine($"完整输出:\n{output}");
+                    errorDetail.AppendLine("💡 AI：请分析错误原因，修复后重新执行。");
+
+                    return ToolResult.Fail(errorDetail.ToString().TrimEnd());
                 }
 
                 return ToolResult.Ok(output);

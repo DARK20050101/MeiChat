@@ -40,18 +40,37 @@ namespace VPet.Plugin.MeiChat.Agent
         /// <summary>当前工作目录</summary>
         public string WorkingDirectory { get; set; } = "";
 
+        // Agent 行为指令（附加到用户自定义的系统提示词之后）
+        private static readonly string AgentBehaviorInstructions = @"
+
+===== Agent 工作模式 =====
+你现在以 Agent 模式工作。你可以使用工具来帮助用户完成任务。
+
+核心规则：
+1. 每步只做一件事，逐步推进
+2. 工具执行结果会返回给你，据此决定下一步
+3. 如果工具返回 ❌ 错误，请：
+   a. 分析错误原因（编译错误？路径错误？缺少依赖？）
+   b. 使用 read_file 查看相关文件来确认问题
+   c. 使用 edit_file 或 write_file 修复问题
+   d. 重新运行命令验证修复
+   e. 如果多次尝试后仍失败，向用户清晰说明问题
+4. 任务完成后，给用户一个清晰的总结：做了什么、改了什么、结果如何
+5. 如果用户意图不明确，先确认再行动";
+
         /// <summary>
         /// 创建 Agent 引擎
         /// </summary>
         /// <param name="client">DeepSeek API 客户端</param>
         /// <param name="toolRegistry">工具注册中心</param>
-        /// <param name="systemPrompt">系统提示词</param>
+        /// <param name="systemPrompt">用户自定义系统提示词</param>
         /// <param name="maxIterations">最大工具调用轮数</param>
         public AgentEngine(DeepSeekClient client, ToolRegistry toolRegistry, string systemPrompt, int maxIterations = 25)
         {
             _client = client;
             _toolRegistry = toolRegistry;
-            _systemPrompt = systemPrompt;
+            // 追加 Agent 行为指令到系统提示词
+            _systemPrompt = systemPrompt + AgentBehaviorInstructions;
             _maxIterations = maxIterations;
         }
 
