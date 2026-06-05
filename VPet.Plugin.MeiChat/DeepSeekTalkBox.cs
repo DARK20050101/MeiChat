@@ -37,14 +37,104 @@ namespace VPet.Plugin.MeiChat
                 _inputBox.PreviewKeyDown += OnPreviewInputKeyDown;
             }
 
-            // 用 RenderTransform 安全下移（纯视觉，不影响布局定位）
-            try
-            {
-                this.RenderTransform = new TranslateTransform(0, 120);
-            }
-            catch { /* 不影响使用 */ }
+            // 反转布局：让输入框在上方、输出气泡在下方（向下增长，不挡桌宠）
+            Dispatcher.BeginInvoke((Action)FlipLayout,
+                System.Windows.Threading.DispatcherPriority.Loaded);
 
             SetupAgentCommandConfirmation();
+        }
+
+        /// <summary>
+        /// 反转 TalkBox 内部布局：输入框放上面，输出气泡放下面
+        /// 这样气泡变长时会向下增长，不会往上挡住桌宠
+        /// </summary>
+        private void FlipLayout()
+        {
+            try
+            {
+                // 找到根 Grid（TalkBox 模板的主容器）
+                var grid = FindVisualChild<Grid>(this);
+                if (grid == null) return;
+
+                // 找到输入框所在的容器 Panel
+                var inputPanel = FindChildContainer(grid, _inputBox);
+                if (inputPanel == null) return;
+
+                // 找到另一个子元素（就是输出气泡容器）
+                for (int i = 0; i < VisualTreeHelper.GetChildrenCount(grid); i++)
+                {
+                    var child = VisualTreeHelper.GetChild(grid, i);
+                    if (child == inputPanel) continue;
+                    if (child is not UIElement bubbleContainer) continue;
+
+                    // 交换 Grid.Row，让输入框在上面
+                    int inputRow = Grid.GetRow((UIElement)inputPanel);
+                    int bubbleRow = Grid.GetRow(bubbleContainer);
+
+                    if (inputRow < bubbleRow)
+                    {
+                        // 当前是输入在下面，气泡在上面 → 交换
+                        Grid.SetRow((UIElement)inputPanel, bubbleRow);
+                        Grid.SetRow(bubbleContainer, inputRow);
+
+                        // 交换 RowDefinition 的高度
+                        if (grid.RowDefinitions.Count > Math.Max(inputRow, bubbleRow))
+                        {
+                            var tmp = grid.RowDefinitions[inputRow].Height;
+                            grid.RowDefinitions[inputRow].Height = grid.RowDefinitions[bubbleRow].Height;
+                            grid.RowDefinitions[bubbleRow].Height = tmp;
+                        }
+                    }
+                    // else: 已经是我们想要的顺序了
+                    break;
+                }
+            }
+            catch { /* 布局反转失败不影响核心功能 */ }
+        }
+
+        /// <summary>
+        /// 在 Grid 中找到包含指定子元素的直接子容器
+        /// </summary>
+        private static UIElement? FindChildContainer(Grid grid, DependencyObject? target)
+        {
+            if (target == null) return null;
+
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(grid); i++)
+            {
+                var child = VisualTreeHelper.GetChild(grid, i);
+                if (child is UIElement uiChild && ContainsVisual(uiChild, target))
+                    return uiChild;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 判断 parent 的可视树中是否包含 target
+        /// </summary>
+        private static bool ContainsVisual(DependencyObject parent, DependencyObject target)
+        {
+            if (parent == target) return true;
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                if (ContainsVisual(VisualTreeHelper.GetChild(parent, i), target))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 在可视树中查找指定类型的子元素
+        /// </summary>
+        private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T t) return t;
+                var result = FindVisualChild<T>(child);
+                if (result != null) return result;
+            }
+            return null;
         }
 
         /// <summary>
@@ -270,7 +360,6 @@ namespace VPet.Plugin.MeiChat
                         }
                         else if (hasContent)
                         {
-                            // 限流更新，避免气泡闪烁
                             var now = DateTime.UtcNow;
                             if ((now - _lastBubbleUpdate).TotalMilliseconds > 120)
                             {
@@ -282,7 +371,6 @@ namespace VPet.Plugin.MeiChat
                     },
                     onFinish: _ =>
                     {
-                        // 确保最终文本完整（限流可能漏掉最后几个字符）
                         if (hasContent)
                         {
                             _plugin.MW.Dispatcher.Invoke(() =>
