@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -14,12 +15,29 @@ namespace VPet.Plugin.MeiChat.Views
         private readonly Main _plugin;
         private readonly List<DeepSeekClient.ChatMessage> _messages = new();
         private bool _isProcessing;
+        private TextBlock? _streamingTextBlock;
 
         public ChatWindow(Main plugin)
         {
             InitializeComponent();
             _plugin = plugin;
-            Loaded += (s, e) => InputBox.Focus();
+            Loaded += OnLoaded;
+        }
+
+        private void OnLoaded(object sender, EventArgs e)
+        {
+            InputBox.Focus();
+
+            // 定位到 VPet 主窗口附近（底部偏左，不挡住桌宠）
+            try
+            {
+                if (Application.Current?.MainWindow is Window mainWin && mainWin.Visibility == Visibility.Visible)
+                {
+                    this.Left = mainWin.Left + 20;
+                    this.Top = mainWin.Top + mainWin.Height - this.Height - 80;
+                }
+            }
+            catch { /* 定位失败不影响使用 */ }
         }
 
         private async void BtnSend_Click(object sender, RoutedEventArgs e)
@@ -50,12 +68,48 @@ namespace VPet.Plugin.MeiChat.Views
 
             try
             {
-                var response = await System.Threading.Tasks.Task.Run(() =>
-                    _plugin.ApiClient!.SendMessageAsync(
-                        _messages, _plugin.Config.SystemPrompt));
+                // 创建空的 AI 气泡，用于流式填充
+                AddMessage("", isUser: false);
+                var fullText = new StringBuilder();
 
-                _messages.Add(new DeepSeekClient.ChatMessage { IsUser = false, Content = response });
-                AddMessage(response, isUser: false);
+                await _plugin.ApiClient!.SendMessageStreamAsync(
+                    _messages,
+                    onContent: chunk =>
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            fullText.Append(chunk);
+                            if (_streamingTextBlock != null)
+                                _streamingTextBlock.Text = fullText.ToString();
+                            MessageArea.ScrollToBottom();
+                        });
+                    },
+                    onFinish: _ =>
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            _streamingTextBlock = null;
+                        });
+                    },
+                    onError: error =>
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            if (_streamingTextBlock != null)
+                            {
+                                _streamingTextBlock.Text += $"\n\n⚠️ {error}";
+                                _streamingTextBlock = null;
+                            }
+                        });
+                    },
+                    systemPrompt: _plugin.Config.SystemPrompt
+                );
+
+                _messages.Add(new DeepSeekClient.ChatMessage
+                {
+                    IsUser = false,
+                    Content = fullText.ToString()
+                });
             }
             catch (Exception ex)
             {
@@ -67,6 +121,28 @@ namespace VPet.Plugin.MeiChat.Views
                 BtnSend.IsEnabled = true;
                 InputBox.Focus();
             }
+        }
+
+        /// <summary>
+        /// 外部添加 AI 消息（供 TalkBox Agent 模式调用）
+        /// </summary>
+        public void AddAiMessage(string content)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                AddMessage(content, isUser: false);
+            });
+        }
+
+        /// <summary>
+        /// 外部添加用户消息
+        /// </summary>
+        public void AddUserMessage(string content)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                AddMessage(content, isUser: true);
+            });
         }
 
         private void AddMessage(string content, bool isUser)
@@ -82,6 +158,14 @@ namespace VPet.Plugin.MeiChat.Views
             };
             panel.Children.Add(label);
 
+            var textBlock = new TextBlock
+            {
+                Text = content,
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 13,
+                Foreground = isUser ? Brushes.White : new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33))
+            };
+
             var bubble = new Border
             {
                 Background = isUser
@@ -92,19 +176,16 @@ namespace VPet.Plugin.MeiChat.Views
                 MaxWidth = 300,
                 HorizontalAlignment = isUser ? HorizontalAlignment.Right : HorizontalAlignment.Left
             };
-            bubble.Child = new TextBlock
-            {
-                Text = content,
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = 13,
-                Foreground = isUser ? Brushes.White : new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33))
-            };
+            bubble.Child = textBlock;
 
             panel.Children.Add(bubble);
             MessageList.Children.Add(panel);
 
-            // 滚动到底部
-            MessageArea.ScrollToVerticalOffset(double.MaxValue);
+            // AI 消息追踪 TextBlock，用于流式更新
+            if (!isUser)
+                _streamingTextBlock = textBlock;
+
+            MessageArea.ScrollToBottom();
         }
 
         protected override void OnClosing(CancelEventArgs e)

@@ -31,11 +31,17 @@ namespace VPet.Plugin.MeiChat
             if (_inputBox != null)
             {
                 _inputBox.KeyDown += OnInputKeyDown;
-                // 备选方案：用 PreviewKeyDown，它在 TextBox 处理 Enter 之前触发
                 _inputBox.PreviewKeyDown += OnPreviewInputKeyDown;
             }
 
-            // 初始化 Agent 引擎并设置命令确认回调
+            // 尝试将 TalkBox 整体下移，减少遮挡桌宠
+            try
+            {
+                this.VerticalAlignment = VerticalAlignment.Bottom;
+                this.Margin = new Thickness(0, 0, 0, 80);
+            }
+            catch { /* 不影响使用 */ }
+
             SetupAgentCommandConfirmation();
         }
 
@@ -190,8 +196,11 @@ namespace VPet.Plugin.MeiChat
                     return;
                 }
 
+                // 自动打开 ChatWindow（流式、可滚动、不挡桌宠）
+                _plugin.MW.Dispatcher.Invoke(() => _plugin.OpenChatWindow());
+
                 var autoStatus = _plugin.IsAutoMode ? "（自动模式已开启）" : "";
-                _plugin.MW.Main.Say($"🤖 Agent 模式已开启！{autoStatus}\n我可以帮你读代码、改文件、执行命令。需要我做什么？\n💡 输入 /auto 切换自动模式，/chat 返回聊天模式");
+                _plugin.MW.Main.Say($"🤖 Agent 模式已开启！{autoStatus}\n回复将显示在聊天窗口中，不再遮挡桌宠～\n💡 输入 /auto 切换自动模式，/chat 返回聊天模式");
             }
             else
             {
@@ -229,17 +238,30 @@ namespace VPet.Plugin.MeiChat
 
             _plugin.AddMessage(true, text);
 
-            // 显示思考中提示
+            // 添加用户消息到 ChatWindow
+            var chatWin = _plugin.MW.Dispatcher.Invoke(() => _plugin.OpenChatWindow());
+            if (chatWin != null)
+            {
+                chatWin.AddUserMessage(text);
+            }
+
             _plugin.MW.Main.Say("🤔 让我看看...");
 
-            // 执行 Agent（同步等待，Task.Run 已在后台线程上）
+            // 执行 Agent
             var result = engine.ExecuteAsync(text).GetAwaiter().GetResult();
 
             _plugin.AddMessage(false, result);
 
+            // 显示在 ChatWindow（流式、可滚动、不挡桌宠）
             if (!string.IsNullOrWhiteSpace(result))
             {
-                _plugin.MW.Main.Say(result);
+                if (chatWin != null)
+                {
+                    chatWin.AddAiMessage(result);
+                }
+                // 在 TalkBox 气泡中只显示简短摘要，避免遮挡桌宠
+                var summary = result.Length > 80 ? result[..80] + "..." : result;
+                _plugin.MW.Main.Say(summary);
             }
         }
 

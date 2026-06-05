@@ -107,13 +107,17 @@ namespace VPet.Plugin.MeiChat
             }
         }
 
-        public void OpenChatWindow()
+        /// <summary>
+        /// 打开或激活聊天窗口
+        /// </summary>
+        /// <returns>聊天窗口实例（新创建或已存在的）</returns>
+        public ChatWindow? OpenChatWindow()
         {
             if (ApiClient == null)
             {
                 MessageBox.Show("请先在设置中配置 API Key",
                     "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
+                return null;
             }
 
             // 查找是否已有聊天窗口
@@ -122,15 +126,16 @@ namespace VPet.Plugin.MeiChat
                 if (w is ChatWindow chatWin)
                 {
                     chatWin.Activate();
-                    return;
+                    return chatWin;
                 }
             }
 
-            // 创建常驻聊天窗口（不会每轮关闭）
+            // 创建常驻聊天窗口
             var window = new ChatWindow(this);
             window.Closed += (s, e) => MW.Windows.Remove(window);
             MW.Windows.Add(window);
             window.Show();
+            return window;
         }
 
         public override void Save()
