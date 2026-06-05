@@ -224,6 +224,14 @@ namespace VPet.Plugin.MeiChat
             var fullText = new StringBuilder();
             var hasContent = false;
 
+            // 附加工作目录信息，防止 AI 瞎编路径
+            var chatSystemPrompt = _plugin.Config.SystemPrompt;
+            var workDir = _plugin.GetWorkingDirectory();
+            if (!string.IsNullOrWhiteSpace(workDir))
+            {
+                chatSystemPrompt += $"\n\n当前工作目录（请如实告知用户）:\n{workDir}";
+            }
+
             try
             {
                 _plugin.ApiClient.SendMessageStreamAsync(
@@ -252,7 +260,7 @@ namespace VPet.Plugin.MeiChat
                         _plugin.MW.Dispatcher.BeginInvoke((Action)(() =>
                             _plugin.MW.Main.Say($"⚠️ {error}")));
                     },
-                    systemPrompt: _plugin.Config.SystemPrompt
+                    systemPrompt: chatSystemPrompt
                 ).GetAwaiter().GetResult();
             }
             catch (Exception ex)

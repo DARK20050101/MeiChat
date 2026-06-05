@@ -84,7 +84,8 @@ namespace VPet.Plugin.MeiChat.Agent
 - 读写文件时不指定路径则默认在此目录下操作
 - 可使用 list_directory 查看目录内容
 - 可使用相对路径（如 ""src/Main.cs""）
-- 如果用户指定了其他路径，优先使用用户指定的路径";
+- 如果用户指定了其他路径，优先使用用户指定的路径
+- ⚠️ 重要：当用户询问工作目录时，必须如实回复以上路径，不得编造";
             }
 
             _systemPrompt = fullPrompt;
