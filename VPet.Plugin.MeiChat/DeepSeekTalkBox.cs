@@ -1,8 +1,10 @@
 using System;
 using System.Reflection;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using VPet_Simulator.Windows.Interface;
 using VPet.Plugin.MeiChat.Agent.Tools;
 
@@ -15,6 +17,7 @@ namespace VPet.Plugin.MeiChat
 
         private TextBox? _inputBox;
         private Button? _sendBtn;
+        private DateTime _lastBubbleUpdate = DateTime.MinValue;
 
         public DeepSeekTalkBox(Main plugin) : base(plugin)
         {
@@ -34,11 +37,10 @@ namespace VPet.Plugin.MeiChat
                 _inputBox.PreviewKeyDown += OnPreviewInputKeyDown;
             }
 
-            // 尝试将 TalkBox 整体下移，减少遮挡桌宠
+            // 用 RenderTransform 安全下移（纯视觉，不影响布局定位）
             try
             {
-                this.VerticalAlignment = VerticalAlignment.Bottom;
-                this.Margin = new Thickness(0, 0, 0, 80);
+                this.RenderTransform = new TranslateTransform(0, 120);
             }
             catch { /* 不影响使用 */ }
 
@@ -52,11 +54,9 @@ namespace VPet.Plugin.MeiChat
         {
             RunCommandTool.RequestConfirmation = (command, isDestructive) =>
             {
-                // Auto 模式 + 非危险操作 → 静默执行
                 if (_plugin.IsAutoMode && !isDestructive)
                     return true;
 
-                // 需要用户确认 — 在 UI 线程上弹窗
                 return _plugin.MW.Dispatcher.Invoke(() =>
                 {
                     var title = isDestructive
@@ -64,7 +64,6 @@ namespace VPet.Plugin.MeiChat
                         : "🔧 命令执行确认";
                     var message = $"芽衣想要执行以下命令：\n\n{command}\n\n是否允许？";
 
-                    // Agent 模式时才弹窗，非 Agent 模式默认拒绝执行命令
                     if (!_plugin.IsAgentMode)
                         return false;
 
@@ -124,7 +123,7 @@ namespace VPet.Plugin.MeiChat
 
                 var cmd = text.Trim().ToLower();
 
-                // ===== 全局指令（Agent 模式和聊天模式共享） =====
+                // ===== 全局指令 =====
                 if (cmd == "/ui" || cmd == "/window")
                 {
                     _plugin.MW.Dispatcher.Invoke(() => _plugin.OpenChatWindow());
@@ -164,15 +163,11 @@ namespace VPet.Plugin.MeiChat
                     return;
                 }
 
-                // ===== 根据当前模式处理消息 =====
+                // ===== 根据模式处理 =====
                 if (_plugin.IsAgentMode)
-                {
                     HandleAgentMessage(text);
-                }
                 else
-                {
                     HandleChatMessage(text);
-                }
             }
             catch (Exception ex)
             {
@@ -187,7 +182,6 @@ namespace VPet.Plugin.MeiChat
             _plugin.IsAgentMode = !_plugin.IsAgentMode;
             if (_plugin.IsAgentMode)
             {
-                // 初始化 Agent 引擎
                 _plugin.InitializeAgentEngine();
                 if (_plugin.AgentEngine == null)
                 {
@@ -196,11 +190,8 @@ namespace VPet.Plugin.MeiChat
                     return;
                 }
 
-                // 自动打开 ChatWindow（流式、可滚动、不挡桌宠）
-                _plugin.MW.Dispatcher.Invoke(() => _plugin.OpenChatWindow());
-
                 var autoStatus = _plugin.IsAutoMode ? "（自动模式已开启）" : "";
-                _plugin.MW.Main.Say($"🤖 Agent 模式已开启！{autoStatus}\n回复将显示在聊天窗口中，不再遮挡桌宠～\n💡 输入 /auto 切换自动模式，/chat 返回聊天模式");
+                _plugin.MW.Main.Say($"🤖 Agent 模式已开启！{autoStatus}\n我可以帮你读代码、改文件、执行命令。\n💡 输入 /auto 切换自动模式，/chat 返回聊天模式");
             }
             else
             {
@@ -233,39 +224,21 @@ namespace VPet.Plugin.MeiChat
                 return;
             }
 
-            // 确保工作目录是最新的
             engine.WorkingDirectory = _plugin.GetWorkingDirectory();
-
             _plugin.AddMessage(true, text);
-
-            // 添加用户消息到 ChatWindow
-            var chatWin = _plugin.MW.Dispatcher.Invoke(() => _plugin.OpenChatWindow());
-            if (chatWin != null)
-            {
-                chatWin.AddUserMessage(text);
-            }
 
             _plugin.MW.Main.Say("🤔 让我看看...");
 
-            // 执行 Agent
             var result = engine.ExecuteAsync(text).GetAwaiter().GetResult();
-
             _plugin.AddMessage(false, result);
 
-            // 显示在 ChatWindow（流式、可滚动、不挡桌宠）
             if (!string.IsNullOrWhiteSpace(result))
             {
-                if (chatWin != null)
-                {
-                    chatWin.AddAiMessage(result);
-                }
-                // 在 TalkBox 气泡中只显示简短摘要，避免遮挡桌宠
-                var summary = result.Length > 80 ? result[..80] + "..." : result;
-                _plugin.MW.Main.Say(summary);
+                _plugin.MW.Main.Say(result);
             }
         }
 
-        // ===== 普通聊天模式 =====
+        // ===== 普通聊天模式（流式输出） =====
 
         private void HandleChatMessage(string text)
         {
@@ -277,17 +250,59 @@ namespace VPet.Plugin.MeiChat
 
             _plugin.AddMessage(true, text);
 
-            var response = _plugin.ApiClient.SendMessageAsync(
-                _plugin.GetMessageHistory(),
-                _plugin.Config.SystemPrompt
-            ).GetAwaiter().GetResult();
+            var fullText = new StringBuilder();
+            var hasContent = false;
+            _lastBubbleUpdate = DateTime.MinValue;
 
-            _plugin.AddMessage(false, response);
-
-            if (!string.IsNullOrWhiteSpace(response))
+            try
             {
-                _plugin.MW.Main.Say(response);
+                _plugin.ApiClient.SendMessageStreamAsync(
+                    _plugin.GetMessageHistory(),
+                    onContent: chunk =>
+                    {
+                        fullText.Append(chunk);
+
+                        if (!hasContent && fullText.Length > 0)
+                        {
+                            hasContent = true;
+                            _plugin.MW.Dispatcher.Invoke(() =>
+                                _plugin.MW.Main.Say(fullText.ToString()));
+                        }
+                        else if (hasContent)
+                        {
+                            // 限流更新，避免气泡闪烁
+                            var now = DateTime.UtcNow;
+                            if ((now - _lastBubbleUpdate).TotalMilliseconds > 120)
+                            {
+                                _lastBubbleUpdate = now;
+                                _plugin.MW.Dispatcher.Invoke(() =>
+                                    _plugin.MW.Main.Say(fullText.ToString()));
+                            }
+                        }
+                    },
+                    onFinish: _ =>
+                    {
+                        // 确保最终文本完整（限流可能漏掉最后几个字符）
+                        if (hasContent)
+                        {
+                            _plugin.MW.Dispatcher.Invoke(() =>
+                                _plugin.MW.Main.Say(fullText.ToString()));
+                        }
+                    },
+                    onError: error =>
+                    {
+                        _plugin.MW.Dispatcher.Invoke(() =>
+                            _plugin.MW.Main.Say($"⚠️ {error}"));
+                    },
+                    systemPrompt: _plugin.Config.SystemPrompt
+                ).GetAwaiter().GetResult();
             }
+            catch (Exception ex)
+            {
+                _plugin.MW.Main.Say($"⚠️ {ex.Message}");
+            }
+
+            _plugin.AddMessage(false, fullText.ToString());
         }
 
         // ===== 帮助 =====
