@@ -15,6 +15,24 @@ namespace VPet.Plugin.MeiChat.Views
             InitializeComponent();
             _config = config;
             _onSaved = onSaved;
+
+            // 限制窗口最大高度不超过屏幕
+            this.MaxHeight = SystemParameters.WorkArea.Height - 20;
+
+            // 确保在屏幕范围内
+            Loaded += (s, e) =>
+            {
+                try
+                {
+                    var wa = SystemParameters.WorkArea;
+                    if (this.Left + this.Width > wa.Right) this.Left = wa.Right - this.Width - 10;
+                    if (this.Left < wa.Left) this.Left = wa.Left + 10;
+                    if (this.Top + this.Height > wa.Bottom) this.Top = wa.Bottom - this.Height - 10;
+                    if (this.Top < wa.Top) this.Top = wa.Top + 10;
+                }
+                catch { }
+            };
+
             LoadConfig();
         }
 

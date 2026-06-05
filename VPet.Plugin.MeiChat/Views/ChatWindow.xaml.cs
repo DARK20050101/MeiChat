@@ -28,13 +28,23 @@ namespace VPet.Plugin.MeiChat.Views
         {
             InputBox.Focus();
 
-            // 定位到 VPet 主窗口附近（底部偏左，不挡住桌宠）
+            // 定位到 VPet 主窗口附近，并确保在屏幕范围内
             try
             {
                 if (Application.Current?.MainWindow is Window mainWin && mainWin.Visibility == Visibility.Visible)
                 {
-                    this.Left = mainWin.Left + 20;
-                    this.Top = mainWin.Top + mainWin.Height - this.Height - 80;
+                    double left = mainWin.Left + 20;
+                    double top = mainWin.Top + mainWin.Height - this.Height - 80;
+
+                    // 确保不超出屏幕工作区
+                    var wa = SystemParameters.WorkArea;
+                    if (left + this.Width > wa.Right) left = wa.Right - this.Width - 10;
+                    if (left < wa.Left) left = wa.Left + 10;
+                    if (top + this.Height > wa.Bottom) top = wa.Bottom - this.Height - 10;
+                    if (top < wa.Top) top = wa.Top + 10;
+
+                    this.Left = left;
+                    this.Top = top;
                 }
             }
             catch { /* 定位失败不影响使用 */ }
