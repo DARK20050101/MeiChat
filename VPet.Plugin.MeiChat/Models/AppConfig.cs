@@ -40,6 +40,13 @@ namespace VPet.Plugin.MeiChat.Models
         /// <summary>文件管理的工作目录</summary>
         public string WorkingDirectory { get; set; } = string.Empty;
 
+        // ===== Agent 配置 =====
+        /// <summary>是否启用 Agent 模式（默认 false = 普通聊天）</summary>
+        public bool AgentMode { get; set; } = false;
+
+        /// <summary>Auto 模式：自动执行命令无需确认（删除等危险操作仍需确认）</summary>
+        public bool AutoMode { get; set; } = false;
+
         // ===== 窗口配置 =====
         /// <summary>窗口透明度 (0.3 ~ 1.0)</summary>
         public double WindowOpacity { get; set; } = 0.95;
@@ -102,7 +109,7 @@ namespace VPet.Plugin.MeiChat.Models
             return !string.IsNullOrWhiteSpace(ApiKey);
         }
 
-        private static string GetDefaultWorkingDirectory()
+        public static string GetDefaultWorkingDirectory()
         {
             // 尝试获取用户桌面路径
             var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);

@@ -169,6 +169,180 @@ namespace VPet.Plugin.MeiChat
             }
         }
 
+        // ===== Agent 工具调用支持 =====
+
+        /// <summary>
+        /// 带工具定义的消息发送（非流式，支持 tool_calls）
+        /// </summary>
+        public async Task<Agent.AgentResponse> SendWithToolsAsync(
+            List<Agent.AgentMessage> messages,
+            List<Agent.ToolDefinition>? tools,
+            string? systemPrompt = null,
+            CancellationToken ct = default)
+        {
+            var requestBody = BuildToolRequestBody(messages, tools, systemPrompt);
+            var json = JsonSerializer.Serialize(requestBody, JsonOptions);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync(_baseUrl, content, ct);
+            response.EnsureSuccessStatusCode();
+
+            var responseJson = await response.Content.ReadAsStringAsync(ct);
+            return ParseAgentResponse(responseJson);
+        }
+
+        /// <summary>
+        /// 解析包含 tool_calls 的 API 响应
+        /// </summary>
+        private static Agent.AgentResponse ParseAgentResponse(string responseJson)
+        {
+            using var doc = JsonDocument.Parse(responseJson);
+            var root = doc.RootElement;
+            var choices = root.GetProperty("choices");
+
+            if (choices.GetArrayLength() == 0)
+                return new Agent.AgentResponse { Content = "" };
+
+            var choice = choices[0];
+            var message = choice.GetProperty("message");
+
+            // 提取文本内容（可能为 null）
+            string? content = null;
+            if (message.TryGetProperty("content", out var contentToken) &&
+                contentToken.ValueKind == JsonValueKind.String)
+            {
+                content = contentToken.GetString();
+            }
+
+            // 提取结束原因
+            string? finishReason = null;
+            if (choice.TryGetProperty("finish_reason", out var reasonToken) &&
+                reasonToken.ValueKind == JsonValueKind.String)
+            {
+                finishReason = reasonToken.GetString();
+            }
+
+            // 提取工具调用
+            List<Agent.ToolCallData>? toolCalls = null;
+            if (message.TryGetProperty("tool_calls", out var tcToken) &&
+                tcToken.ValueKind == JsonValueKind.Array)
+            {
+                toolCalls = new List<Agent.ToolCallData>();
+                foreach (var call in tcToken.EnumerateArray())
+                {
+                    var func = call.GetProperty("function");
+                    toolCalls.Add(new Agent.ToolCallData
+                    {
+                        Id = call.GetProperty("id").GetString() ?? "",
+                        Name = func.GetProperty("name").GetString() ?? "",
+                        Arguments = func.GetProperty("arguments").GetString() ?? "{}"
+                    });
+                }
+            }
+
+            return new Agent.AgentResponse
+            {
+                Content = content,
+                ToolCalls = toolCalls,
+                FinishReason = finishReason
+            };
+        }
+
+        /// <summary>
+        /// 构建带 tools 参数的请求体
+        /// </summary>
+        private object BuildToolRequestBody(
+            List<Agent.AgentMessage> messages,
+            List<Agent.ToolDefinition>? tools,
+            string? systemPrompt,
+            bool stream = false)
+        {
+            var apiMessages = new List<object>();
+
+            // 系统提示词
+            if (!string.IsNullOrWhiteSpace(systemPrompt))
+            {
+                apiMessages.Add(new { role = "system", content = systemPrompt });
+            }
+
+            // 消息列表（支持 user/assistant/tool 角色）
+            foreach (var msg in messages)
+            {
+                switch (msg.Role)
+                {
+                    case "tool":
+                        apiMessages.Add(new
+                        {
+                            role = "tool",
+                            tool_call_id = msg.ToolCallId ?? "",
+                            content = msg.Content ?? ""
+                        });
+                        break;
+
+                    case "assistant" when msg.ToolCalls?.Count > 0:
+                        // Assistant 消息 + tool_calls
+                        var assistantDict = new Dictionary<string, object?>
+                        {
+                            ["role"] = "assistant",
+                            ["content"] = msg.Content  // 可能为 null
+                        };
+
+                        var calls = msg.ToolCalls.Select(tc => new
+                        {
+                            id = tc.Id,
+                            type = "function",
+                            function = new
+                            {
+                                name = tc.Name,
+                                arguments = tc.Arguments
+                            }
+                        }).ToArray();
+
+                        assistantDict["tool_calls"] = calls;
+                        apiMessages.Add(assistantDict);
+                        break;
+
+                    default:
+                        apiMessages.Add(new
+                        {
+                            role = msg.Role,
+                            content = msg.Content ?? ""
+                        });
+                        break;
+                }
+            }
+
+            var body = new Dictionary<string, object>
+            {
+                ["model"] = _model,
+                ["max_tokens"] = _maxTokens,
+                ["temperature"] = _temperature,
+                ["messages"] = apiMessages
+            };
+
+            // 添加工具定义
+            if (tools != null && tools.Count > 0)
+            {
+                body["tools"] = tools.Select(t => new
+                {
+                    type = "function",
+                    function = new
+                    {
+                        name = t.Function.Name,
+                        description = t.Function.Description,
+                        parameters = t.Function.Parameters
+                    }
+                }).ToArray();
+            }
+
+            if (stream)
+            {
+                body["stream"] = true;
+            }
+
+            return body;
+        }
+
         /// <summary>
         /// 检查 API Key 是否有效
         /// </summary>

@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using VPet_Simulator.Windows.Interface;
+using VPet.Plugin.MeiChat.Agent;
+using VPet.Plugin.MeiChat.Agent.Tools;
 using VPet.Plugin.MeiChat.Models;
 using VPet.Plugin.MeiChat.Views;
 
@@ -17,6 +20,33 @@ namespace VPet.Plugin.MeiChat
         private string _configDir = string.Empty;
         private readonly List<DeepSeekClient.ChatMessage> _messages = new();
         private bool _talkBoxRegistered;
+
+        // ===== Agent 引擎 =====
+        /// <summary>Agent 引擎（lazy init，首次进入 Agent 模式时创建）</summary>
+        public AgentEngine? AgentEngine { get; private set; }
+        /// <summary>工具注册中心</summary>
+        public ToolRegistry? ToolRegistry { get; private set; }
+        /// <summary>是否处于 Agent 模式</summary>
+        public bool IsAgentMode
+        {
+            get => Config.AgentMode;
+            set
+            {
+                Config.AgentMode = value;
+                Config.Save();
+            }
+        }
+        /// <summary>是否自动执行命令</summary>
+        public bool IsAutoMode
+        {
+            get => Config.AutoMode;
+            set
+            {
+                Config.AutoMode = value;
+                if (AgentEngine != null) AgentEngine.AutoMode = value;
+                Config.Save();
+            }
+        }
 
         public Main(IMainWindow mainwin) : base(mainwin)
         {
@@ -144,12 +174,73 @@ namespace VPet.Plugin.MeiChat
             }
         }
 
+        // ===== Agent 引擎初始化 =====
+
+        /// <summary>
+        /// 初始化 Agent 引擎（需要在 ApiClient 可用时调用）
+        /// </summary>
+        public void InitializeAgentEngine()
+        {
+            if (ApiClient == null) return;
+
+            // 如果已有引擎但客户端变了，重新创建
+            if (AgentEngine != null) return;
+
+            ToolRegistry = new ToolRegistry();
+            var workingDir = GetWorkingDirectory();
+
+            // 注册工具
+            ToolRegistry.Register(new ReadFileTool());
+            ToolRegistry.Register(new WriteFileTool());
+            ToolRegistry.Register(new EditFileTool());
+            ToolRegistry.Register(new ListDirectoryTool());
+            ToolRegistry.Register(new SearchCodeTool());
+            ToolRegistry.Register(new RunCommandTool());  // 确认回调由 TalkBox 设置
+
+            AgentEngine = new AgentEngine(ApiClient, ToolRegistry, Config.SystemPrompt)
+            {
+                AutoMode = Config.AutoMode,
+                WorkingDirectory = workingDir
+            };
+        }
+
+        /// <summary>
+        /// 清理 Agent 引擎状态
+        /// </summary>
+        public void ResetAgentEngine()
+        {
+            AgentEngine?.ClearHistory();
+        }
+
+        /// <summary>
+        /// 销毁并重建 Agent 引擎（API 配置变更时调用）
+        /// </summary>
+        public void ReinitializeAgentEngine()
+        {
+            AgentEngine = null;
+            ToolRegistry = null;
+            InitializeAgentEngine();
+        }
+
+        /// <summary>
+        /// 获取有效的工作目录
+        /// </summary>
+        public string GetWorkingDirectory()
+        {
+            if (!string.IsNullOrWhiteSpace(Config.WorkingDirectory) &&
+                Directory.Exists(Config.WorkingDirectory))
+                return Config.WorkingDirectory;
+
+            return AppConfig.GetDefaultWorkingDirectory();
+        }
+
         private void OnConfigSaved(AppConfig newConfig)
         {
             Config = newConfig;
             Config.ConfigDirectory = _configDir;
             Config.Save();
             ReinitializeApiClient();
+            ReinitializeAgentEngine();
         }
     }
 }
