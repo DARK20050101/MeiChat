@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using VPet_Simulator.Windows.Interface;
 using VPet.Plugin.MeiChat.Agent.Tools;
+using VPet.Plugin.MeiChat.Views;
 
 namespace VPet.Plugin.MeiChat
 {
@@ -46,19 +47,22 @@ namespace VPet.Plugin.MeiChat
                 if (_plugin.IsAutoMode && !isDestructive)
                     return true;
 
-                return _plugin.MW.Dispatcher.Invoke(() =>
+                // 非 Agent 模式默认拒绝
+                if (!_plugin.IsAgentMode)
+                    return false;
+
+                // 使用自定义弹窗（可滚动、可拖动、可一键开启自动模式）
+                var result = _plugin.MW.Dispatcher.Invoke(() =>
+                    ConfirmDialog.Show(command, isDestructive));
+
+                // 用户点击了"不再询问" → 开启自动模式
+                if (result.AutoMode)
                 {
-                    var title = isDestructive
-                        ? "⚠️ 危险操作确认"
-                        : "🔧 命令执行确认";
-                    var message = $"芽衣想要执行以下命令：\n\n{command}\n\n是否允许？";
+                    _plugin.IsAutoMode = true;
+                    _plugin.MW.Main.Say("🚀 自动模式已开启，后续命令将自动执行（危险操作除外）");
+                }
 
-                    if (!_plugin.IsAgentMode)
-                        return false;
-
-                    return MessageBox.Show(message, title,
-                        MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
-                });
+                return result.Allowed;
             };
         }
 
@@ -202,7 +206,7 @@ namespace VPet.Plugin.MeiChat
             _plugin.AddMessage(false, result);
 
             if (!string.IsNullOrWhiteSpace(result))
-                _plugin.MW.Main.Say(result);
+                _plugin.MW.Main.Say(result.TrimStart());
         }
 
         // ===== 普通聊天模式（极致流式输出） =====
@@ -231,23 +235,17 @@ namespace VPet.Plugin.MeiChat
                         // BeginInvoke 异步派发，不阻塞网络接收线程
                         _plugin.MW.Dispatcher.BeginInvoke((Action)(() =>
                         {
-                            if (!hasContent && fullText.Length > 0)
+                            var display = fullText.ToString().TrimStart();
+                            if (display.Length > 0)
                             {
-                                hasContent = true;
-                            }
-                            if (hasContent)
-                            {
-                                _plugin.MW.Main.Say(fullText.ToString());
+                                if (!hasContent) hasContent = true;
+                                _plugin.MW.Main.Say(display);
                             }
                         }));
                     },
                     onFinish: _ =>
                     {
-                        // 确保最终文本完整显示
-                        _plugin.MW.Dispatcher.BeginInvoke((Action)(() =>
-                        {
-                            _plugin.MW.Main.Say(fullText.ToString());
-                        }));
+                        // onContent 已完成最后一块的显示，无需重复调用
                     },
                     onError: error =>
                     {

@@ -84,14 +84,19 @@ namespace VPet.Plugin.MeiChat.Agent.Tools
                 }
 
                 // 执行命令
-                var output = await RunProcessAsync(command, workingDir, ct);
+                var (output, exitCode) = await RunProcessAsync(command, workingDir, ct);
 
-                // 限制输出长度（AI 上下文窗口有限）
+                // 限制输出长度
                 const int maxOutputLength = 10000;
                 if (output.Length > maxOutputLength)
                 {
                     output = output[..maxOutputLength] +
                         $"\n\n... [输出过长，仅显示前 {maxOutputLength} 字符]";
+                }
+
+                if (exitCode != 0)
+                {
+                    return ToolResult.Fail($"命令执行失败（退出码: {exitCode}）：\n{output}");
                 }
 
                 return ToolResult.Ok(output);
@@ -106,7 +111,7 @@ namespace VPet.Plugin.MeiChat.Agent.Tools
             }
         }
 
-        private static async Task<string> RunProcessAsync(string command, string workingDir, CancellationToken ct)
+        private static async Task<(string output, int exitCode)> RunProcessAsync(string command, string workingDir, CancellationToken ct)
         {
             var sb = new StringBuilder();
 
@@ -164,7 +169,7 @@ namespace VPet.Plugin.MeiChat.Agent.Tools
                 result.AppendLine(output);
             result.AppendLine($"\n[退出代码: {exitCode}]");
 
-            return result.ToString();
+            return (result.ToString(), exitCode);
         }
     }
 }
