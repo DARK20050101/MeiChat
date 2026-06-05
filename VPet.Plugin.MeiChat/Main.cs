@@ -202,7 +202,8 @@ namespace VPet.Plugin.MeiChat
             ToolRegistry.Register(new SearchCodeTool());
             ToolRegistry.Register(new RunCommandTool());  // 确认回调由 TalkBox 设置
 
-            AgentEngine = new AgentEngine(ApiClient, ToolRegistry, Config.SystemPrompt)
+            AgentEngine = new AgentEngine(ApiClient, ToolRegistry, Config.SystemPrompt,
+                workingDirectory: workingDir)
             {
                 AutoMode = Config.AutoMode,
                 WorkingDirectory = workingDir

@@ -64,13 +64,30 @@ namespace VPet.Plugin.MeiChat.Agent
         /// <param name="client">DeepSeek API 客户端</param>
         /// <param name="toolRegistry">工具注册中心</param>
         /// <param name="systemPrompt">用户自定义系统提示词</param>
+        /// <param name="workingDirectory">当前工作目录（用于告知 AI 文件操作基准路径）</param>
         /// <param name="maxIterations">最大工具调用轮数</param>
-        public AgentEngine(DeepSeekClient client, ToolRegistry toolRegistry, string systemPrompt, int maxIterations = 25)
+        public AgentEngine(DeepSeekClient client, ToolRegistry toolRegistry, string systemPrompt, string workingDirectory = "", int maxIterations = 25)
         {
             _client = client;
             _toolRegistry = toolRegistry;
-            // 追加 Agent 行为指令到系统提示词
-            _systemPrompt = systemPrompt + AgentBehaviorInstructions;
+
+            // 追加 Agent 行为指令
+            var fullPrompt = systemPrompt + AgentBehaviorInstructions;
+
+            // 告知 AI 当前工作目录（非空时）
+            if (!string.IsNullOrWhiteSpace(workingDirectory))
+            {
+                fullPrompt += $@"
+
+===== 工作目录 =====
+当前工作目录: {workingDirectory}
+- 读写文件时不指定路径则默认在此目录下操作
+- 可使用 list_directory 查看目录内容
+- 可使用相对路径（如 ""src/Main.cs""）
+- 如果用户指定了其他路径，优先使用用户指定的路径";
+            }
+
+            _systemPrompt = fullPrompt;
             _maxIterations = maxIterations;
         }
 
