@@ -234,6 +234,7 @@ namespace VPet.Plugin.MeiChat
             ToolRegistry.Register(new MemoryTool());
             ApiStatsTool.Stats = Stats;
             ToolRegistry.Register(new ApiStatsTool());
+            ToolRegistry.Register(new PetControlTool(this));
             var fullPrompt = Config.SystemPrompt;
             if (Memory != null)
                 fullPrompt += Memory.GetMemoryContext();

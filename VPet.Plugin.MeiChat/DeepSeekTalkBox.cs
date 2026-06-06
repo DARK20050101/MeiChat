@@ -244,6 +244,8 @@ namespace VPet.Plugin.MeiChat
             var chatSystemPrompt = _plugin.Config.SystemPrompt;
             var workDir = _plugin.GetWorkingDirectory();
             var defaultDir = AppConfig.GetDefaultWorkingDirectory();
+            // 要求纯文本输出（TalkBox 不支持 Markdown）
+            chatSystemPrompt += "\n\n回复要求：使用纯文本，自然口语化的表达，简洁明了。不要使用 Markdown 格式（不要用 **、##、``` 等符号），不要使用列表符号。需要分段时用换行分隔即可。";
             if (!string.IsNullOrWhiteSpace(workDir))
             {
                 chatSystemPrompt += $"\n\n当前工作目录（请如实告知用户）:\n{workDir}\n默认工作目录: {defaultDir}\n如果用户要求恢复默认，请告知用户可通过设置修改或输入 /reset-workdir 指令。";
