@@ -17,6 +17,13 @@ namespace VPet.Plugin.MeiChat.Views
         private bool _isProcessing;
         private TextBlock? _streamingTextBlock;
 
+        // 懒加载
+        private const int BatchSize = 20;
+        private int _loadCount;          // 已加载的消息数
+        private bool _allLoaded;         // 是否已全部加载
+        private bool _isLoadingHistory;  // 正在加载中，防止递归
+        private bool _initialLoadDone;   // 首次加载完成
+
         public ChatWindow(Main plugin)
         {
             InitializeComponent();
@@ -36,7 +43,6 @@ namespace VPet.Plugin.MeiChat.Views
                     double left = mainWin.Left + 20;
                     double top = mainWin.Top + mainWin.Height - this.Height - 80;
 
-                    // 确保不超出屏幕工作区
                     var wa = SystemParameters.WorkArea;
                     if (left + this.Width > wa.Right) left = wa.Right - this.Width - 10;
                     if (left < wa.Left) left = wa.Left + 10;
@@ -47,7 +53,144 @@ namespace VPet.Plugin.MeiChat.Views
                     this.Top = top;
                 }
             }
-            catch { /* 定位失败不影响使用 */ }
+            catch { }
+
+            // 加载历史消息（最后 N 条）
+            Dispatcher.BeginInvoke((Action)LoadInitialHistory,
+                System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        /// <summary>首次加载：显示最后 BatchSize 条</summary>
+        private void LoadInitialHistory()
+        {
+            var history = _plugin.GetMessageHistory();
+            var total = history.Count;
+            if (total == 0) { _initialLoadDone = true; return; }
+
+            var start = Math.Max(0, total - BatchSize);
+            _loadCount = total - start;
+            _allLoaded = start == 0;
+
+            for (int i = start; i < total; i++)
+            {
+                var msg = history[i];
+                AppendMessage(msg.Content, msg.IsUser, false);
+                _messages.Add(new DeepSeekClient.ChatMessage
+                {
+                    IsUser = msg.IsUser,
+                    Content = msg.Content
+                });
+            }
+
+            _initialLoadDone = true;
+            // 滚动到底部
+            MessageArea.ScrollToBottom();
+        }
+
+        /// <summary>滚动到顶部时加载更多</summary>
+        private void MessageArea_ScrollChanged(object sender, ScrollChangedEventArgs e)
+        {
+            if (!_initialLoadDone || _allLoaded || _isLoadingHistory) return;
+            if (e.VerticalOffset > 0) return; // 还没到顶
+
+            LoadMoreHistory();
+        }
+
+        /// <summary>加载更早的消息</summary>
+        private void LoadMoreHistory()
+        {
+            _isLoadingHistory = true;
+
+            try
+            {
+                var history = _plugin.GetMessageHistory();
+                var total = history.Count;
+                if (total <= _loadCount) { _allLoaded = true; return; }
+
+                var remaining = total - _loadCount;
+                var batch = Math.Min(BatchSize, remaining);
+                var start = total - _loadCount - batch;
+
+                // 记录当前滚动位置
+                var child = MessageList.Children.Count > 0 ? MessageList.Children[0] : null;
+
+                // 在顶部插入更早的消息
+                for (int i = start; i < start + batch; i++)
+                {
+                    var msg = history[i];
+                    InsertMessageAtTop(msg.Content, msg.IsUser);
+                    _messages.Insert(0, new DeepSeekClient.ChatMessage
+                    {
+                        IsUser = msg.IsUser,
+                        Content = msg.Content
+                    });
+                }
+
+                _loadCount += batch;
+                _allLoaded = start == 0;
+
+                // 保持滚动位置不变（聚焦在插入前的第一条消息）
+                if (child != null)
+                {
+                    MessageArea.ScrollToVerticalOffset(0);
+                }
+            }
+            finally
+            {
+                _isLoadingHistory = false;
+            }
+        }
+
+        /// <summary>在消息列表顶部插入一条消息</summary>
+        private void InsertMessageAtTop(string content, bool isUser)
+        {
+            var panel = BuildMessagePanel(content, isUser);
+            MessageList.Children.Insert(0, panel);
+        }
+
+        /// <summary>追加一条消息到底部</summary>
+        private void AppendMessage(string content, bool isUser, bool scrollToBottom)
+        {
+            var panel = BuildMessagePanel(content, isUser);
+            MessageList.Children.Add(panel);
+            if (!isUser) _streamingTextBlock = panel.Children[1] is Border b ? b.Child as TextBlock : null;
+            if (scrollToBottom) MessageArea.ScrollToBottom();
+        }
+
+        private StackPanel BuildMessagePanel(string content, bool isUser)
+        {
+            var panel = new StackPanel { Margin = new Thickness(0, 4, 0, 4) };
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = isUser ? "🧑 我" : "🌸 芽衣",
+                FontSize = 11,
+                Foreground = Brushes.Gray,
+                Margin = new Thickness(4, 0, 0, 2)
+            });
+
+            var textBlock = new TextBlock
+            {
+                Text = content,
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 13,
+                Foreground = isUser ? Brushes.White : new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33))
+            };
+
+            var bubble = new Border
+            {
+                Background = isUser
+                    ? new SolidColorBrush(Color.FromRgb(0x4A, 0x90, 0xD9))
+                    : new SolidColorBrush(Color.FromRgb(0xF0, 0xF0, 0xF0)),
+                CornerRadius = new CornerRadius(8, 8, 8, 8),
+                Padding = new Thickness(12, 8, 12, 8),
+                MaxWidth = 300,
+                HorizontalAlignment = isUser ? HorizontalAlignment.Right : HorizontalAlignment.Left
+            };
+            bubble.Child = textBlock;
+            panel.Children.Add(bubble);
+
+            return panel;
         }
 
         private async void BtnSend_Click(object sender, RoutedEventArgs e)
@@ -70,16 +213,17 @@ namespace VPet.Plugin.MeiChat.Views
             if (string.IsNullOrWhiteSpace(text)) return;
 
             InputBox.Clear();
-            AddMessage(text, isUser: true);
+            AppendMessage(text, isUser: true, scrollToBottom: true);
             _messages.Add(new DeepSeekClient.ChatMessage { IsUser = true, Content = text });
+            // 同步到主历史
+            _plugin.AddMessage(true, text);
 
             _isProcessing = true;
             BtnSend.IsEnabled = false;
 
             try
             {
-                // 创建空的 AI 气泡，用于流式填充
-                AddMessage("", isUser: false);
+                AppendMessage("", isUser: false, scrollToBottom: true);
                 var fullText = new StringBuilder();
 
                 await _plugin.ApiClient!.SendMessageStreamAsync(
@@ -96,20 +240,15 @@ namespace VPet.Plugin.MeiChat.Views
                     },
                     onFinish: _ =>
                     {
-                        Dispatcher.Invoke(() =>
-                        {
-                            _streamingTextBlock = null;
-                        });
+                        Dispatcher.Invoke(() => _streamingTextBlock = null);
                     },
                     onError: error =>
                     {
                         Dispatcher.Invoke(() =>
                         {
                             if (_streamingTextBlock != null)
-                            {
                                 _streamingTextBlock.Text += $"\n\n⚠️ {error}";
-                                _streamingTextBlock = null;
-                            }
+                            _streamingTextBlock = null;
                         });
                     },
                     systemPrompt: _plugin.Config.SystemPrompt
@@ -120,10 +259,12 @@ namespace VPet.Plugin.MeiChat.Views
                     IsUser = false,
                     Content = fullText.ToString()
                 });
+                // 同步到主历史
+                _plugin.AddMessage(false, fullText.ToString());
             }
             catch (Exception ex)
             {
-                AddMessage($"⚠️ {ex.Message}", isUser: false);
+                AppendMessage($"⚠️ {ex.Message}", isUser: false, scrollToBottom: true);
             }
             finally
             {
@@ -133,69 +274,22 @@ namespace VPet.Plugin.MeiChat.Views
             }
         }
 
-        /// <summary>
-        /// 外部添加 AI 消息（供 TalkBox Agent 模式调用）
-        /// </summary>
         public void AddAiMessage(string content)
         {
             Dispatcher.Invoke(() =>
             {
-                AddMessage(content, isUser: false);
+                AppendMessage(content, isUser: false, scrollToBottom: true);
+                _messages.Add(new DeepSeekClient.ChatMessage { IsUser = false, Content = content });
             });
         }
 
-        /// <summary>
-        /// 外部添加用户消息
-        /// </summary>
         public void AddUserMessage(string content)
         {
             Dispatcher.Invoke(() =>
             {
-                AddMessage(content, isUser: true);
+                AppendMessage(content, isUser: true, scrollToBottom: true);
+                _messages.Add(new DeepSeekClient.ChatMessage { IsUser = true, Content = content });
             });
-        }
-
-        private void AddMessage(string content, bool isUser)
-        {
-            var panel = new StackPanel { Margin = new Thickness(0, 4, 0, 4) };
-
-            var label = new TextBlock
-            {
-                Text = isUser ? "🧑 我" : "🌸 芽衣",
-                FontSize = 11,
-                Foreground = Brushes.Gray,
-                Margin = new Thickness(4, 0, 0, 2)
-            };
-            panel.Children.Add(label);
-
-            var textBlock = new TextBlock
-            {
-                Text = content,
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = 13,
-                Foreground = isUser ? Brushes.White : new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33))
-            };
-
-            var bubble = new Border
-            {
-                Background = isUser
-                    ? new SolidColorBrush(Color.FromRgb(0x4A, 0x90, 0xD9))
-                    : new SolidColorBrush(Color.FromRgb(0xF0, 0xF0, 0xF0)),
-                CornerRadius = new CornerRadius(8, 8, 8, 8),
-                Padding = new Thickness(12, 8, 12, 8),
-                MaxWidth = 300,
-                HorizontalAlignment = isUser ? HorizontalAlignment.Right : HorizontalAlignment.Left
-            };
-            bubble.Child = textBlock;
-
-            panel.Children.Add(bubble);
-            MessageList.Children.Add(panel);
-
-            // AI 消息追踪 TextBlock，用于流式更新
-            if (!isUser)
-                _streamingTextBlock = textBlock;
-
-            MessageArea.ScrollToBottom();
         }
 
         protected override void OnClosing(CancelEventArgs e)

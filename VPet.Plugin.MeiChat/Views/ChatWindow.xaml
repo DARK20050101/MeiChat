@@ -18,7 +18,8 @@
         <ScrollViewer x:Name="MessageArea" Grid.Row="0"
                       VerticalScrollBarVisibility="Auto"
                       Background="#F5F5F5"
-                      Padding="8">
+                      Padding="8"
+                      ScrollChanged="MessageArea_ScrollChanged">
             <StackPanel x:Name="MessageList"/>
         </ScrollViewer>
 

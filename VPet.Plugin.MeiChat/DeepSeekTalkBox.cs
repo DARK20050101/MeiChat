@@ -108,7 +108,7 @@ namespace VPet.Plugin.MeiChat
                 if (string.IsNullOrWhiteSpace(text)) return;
                 var cmd = text.Trim().ToLower();
 
-                if (cmd == "/ui" || cmd == "/window")
+                if (cmd == "/ui" || cmd == "/window" || cmd == "/long")
                 {
                     _plugin.MW.Dispatcher.Invoke(() => _plugin.OpenChatWindow());
                     return;
@@ -119,6 +119,12 @@ namespace VPet.Plugin.MeiChat
                     _plugin.Config.WorkingDirectory = defaultDir;
                     _plugin.Config.Save();
                     _plugin.MW.Main.Say($"✅ 工作目录已重置为默认路径:\n{defaultDir}");
+                    return;
+                }
+                if (cmd == "/quiet")
+                {
+                    _plugin.Proactive?.SetQuiet(3);
+                    _plugin.MW.Main.Say("🤐 好的，我安静 3 小时，你说话了我再出来~");
                     return;
                 }
                 if (cmd == "/stats")
@@ -296,16 +302,17 @@ namespace VPet.Plugin.MeiChat
         private void ShowHelp()
         {
             var help = "📋 可用指令：\n" +
-                       "/ui - 打开高级窗口\n" +
+                       "/ui 或 /long - 打开长聊天框（显示历史）\n" +
                        "/agent - 切换 Agent 模式 🤖\n" +
                        "/auto - 切换自动执行模式\n" +
                        "/chat - 返回普通聊天模式\n" +
                        "/clear - 清空历史\n" +
+                       "/quiet - 安静 3 小时\n" +
                        "/reset-workdir - 重置工作目录为桌面\n" +
                        "/stats - 查看 API 统计和缓存命中率\n" +
                        "/help - 本帮助\n\n" +
                        "💡 Agent 模式下我可以读代码、改文件、执行命令、看网页！\n" +
-                       "😴 我有默认作息，到点会自动提醒你~";
+                       "😴 我有默认作息，到点会自动工作/休息/睡觉~";
             _plugin.MW.Main.Say(help);
         }
     }

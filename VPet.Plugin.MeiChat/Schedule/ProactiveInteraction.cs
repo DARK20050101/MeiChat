@@ -20,6 +20,9 @@ namespace VPet.Plugin.MeiChat.Schedule
         // 检测到的活动缓存
         private string _lastDetectedActivity = "";
 
+        // 静默模式
+        private DateTime _quietUntil = DateTime.MinValue;
+
         private static readonly string[] MorningGreetings =
         {
             "早上好呀~今天也是充满干劲的一天呢！",
@@ -108,13 +111,26 @@ namespace VPet.Plugin.MeiChat.Schedule
         public void Stop() => _timer?.Dispose();
 
         /// <summary>记录用户互动时间（TalkBox 调用）</summary>
-        public void NotifyInteraction() => _lastInteraction = DateTime.Now;
+        public void NotifyInteraction()
+        {
+            _lastInteraction = DateTime.Now;
+            _quietUntil = DateTime.MinValue; // 用户说话了，取消静默
+        }
+
+        /// <summary>进入静默模式，N 小时内不说话</summary>
+        public void SetQuiet(int hours = 3) => _quietUntil = DateTime.Now.AddHours(hours);
+
+        /// <summary>是否处于静默模式</summary>
+        public bool IsQuiet => DateTime.Now < _quietUntil;
 
         private void OnCheck()
         {
             try
             {
                 _checkCount++;
+
+                // 静默模式中，不打扰
+                if (DateTime.Now < _quietUntil) return;
 
                 // 距离上次互动 < 5 分钟，不打扰
                 if ((DateTime.Now - _lastInteraction).TotalMinutes < 5)

@@ -87,24 +87,44 @@ namespace VPet.Plugin.MeiChat.Schedule
             catch { /* 不影响主循环 */ }
         }
 
-        /// <summary>触发桌宠动作</summary>
+        /// <summary>触发桌宠原生动作</summary>
         private async Task TriggerPetAction(string action)
         {
-            // VPet 原生动作触发 — 尝试通过 MW 接口
             try
             {
+                var main = _plugin.MW.Main;
                 switch (action)
                 {
-                    case "work":
-                        // 如果有工作 API 则调用
-                        break;
-                    case "eat":
-                        break;
-                    case "sleep":
-                        break;
-                    case "rest":
-                        break;
                     case "wakeup":
+                        main.DisplaySleep(false);
+                        main.State = VPet_Simulator.Core.Main.WorkingState.Nomal;
+                        main.DisplayDefault();
+                        break;
+
+                    case "work":
+                        // 找第一个适合的工作开始
+                        main.WorkList(out var works, out var studies, out var _);
+                        var job = works?.FirstOrDefault() ?? studies?.FirstOrDefault();
+                        if (job != null && main.State != VPet_Simulator.Core.Main.WorkingState.Work)
+                        {
+                            main.StartWork(job);
+                        }
+                        break;
+
+                    case "eat":
+                        // 触发进食动画或说话
+                        main.Say("🍚 开动啦~");
+                        break;
+
+                    case "rest":
+                        main.Say("🎮 休息一会儿~");
+                        break;
+
+                    case "sleep":
+                        // 先停工作，再睡觉
+                        if (main.State == VPet_Simulator.Core.Main.WorkingState.Work)
+                            main.State = VPet_Simulator.Core.Main.WorkingState.Nomal;
+                        main.DisplaySleep(true);
                         break;
                 }
             }
