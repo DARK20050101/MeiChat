@@ -57,13 +57,18 @@ namespace VPet.Plugin.MeiChat.Agent.Tools
                             return StartWork(main, param);
 
                         case "sleep":
+                            // 先停止工作再睡觉
+                            StopWork(main);
                             main.DisplaySleep(true);
-                            return ToolResult.Ok("😴 好的，我去睡一会儿");
+                            return ToolResult.Ok("😴 好的，我去睡一会儿，晚安~");
 
                         case "wakeup":
+                            // 彻底唤醒：停止睡眠、恢复状态、播放起床动画
                             main.DisplaySleep(false);
+                            main.State = VPet_Simulator.Core.Main.WorkingState.Nomal;
                             main.DisplayDefault();
-                            return ToolResult.Ok("🌅 早上好！我起来了");
+                            main.Say("🌅 早安！我起来了~");
+                            return ToolResult.Ok("🌅 早安！");
 
                         case "check":
                             return CheckStatus(save);
@@ -110,8 +115,32 @@ namespace VPet.Plugin.MeiChat.Agent.Tools
             return ToolResult.Ok(sb.ToString().TrimEnd());
         }
 
+        /// <summary>停止当前工作</summary>
+        private void StopWork(VPet_Simulator.Core.Main main)
+        {
+            if (main.State == VPet_Simulator.Core.Main.WorkingState.Work)
+            {
+                try
+                {
+                    // 通过反射调用 WorkTimer.Stop 或直接设置状态
+                    var wt = main.GetType().GetField("WorkTimer",
+                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public |
+                        System.Reflection.BindingFlags.NonPublic)?.GetValue(main);
+                    if (wt != null)
+                    {
+                        var stopMethod = wt.GetType().GetMethod("Stop");
+                        if (stopMethod != null)
+                            stopMethod.Invoke(wt, new object?[] { null, "user_stop" });
+                    }
+                }
+                catch { }
+                main.State = VPet_Simulator.Core.Main.WorkingState.Nomal;
+            }
+        }
+
         private ToolResult StartWork(VPet_Simulator.Core.Main main, string workName)
         {
+            StopWork(main);
             main.WorkList(out var works, out var studies, out var plays);
             var allWorks = new List<VPet_Simulator.Core.GraphHelper.Work>();
             if (works != null) allWorks.AddRange(works);
