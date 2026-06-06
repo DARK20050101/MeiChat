@@ -34,6 +34,8 @@ namespace VPet.Plugin.MeiChat
         public MemoryManager? Memory { get; private set; }
         /// <summary>作息调度</summary>
         public ScheduleManager? Scheduler { get; private set; }
+        /// <summary>主动互动</summary>
+        public ProactiveInteraction? Proactive { get; private set; }
         /// <summary>API 用量统计</summary>
         public ApiStats Stats { get; private set; } = new();
         /// <summary>是否处于 Agent 模式</summary>
@@ -73,6 +75,7 @@ namespace VPet.Plugin.MeiChat
                 // 初始化持久模块
                 Memory = new MemoryManager(_configDir);
                 Scheduler = new ScheduleManager(this, Memory);
+                Proactive = new ProactiveInteraction(this, Memory);
                 Stats = new ApiStats();
 
                 InitializeApiClient();
@@ -92,8 +95,9 @@ namespace VPet.Plugin.MeiChat
         {
             base.GameLoaded();
 
-            // 启动作息调度（游戏加载完成后）
+            // 启动作息调度和主动互动（游戏加载完成后）
             try { Scheduler?.Start(); } catch { }
+            try { Proactive?.Start(); } catch { }
 
             // 注册 TalkBox 接入 VPet 原生聊天框
             if (!_talkBoxRegistered)

@@ -160,6 +160,9 @@ namespace VPet.Plugin.MeiChat
                     return;
                 }
 
+                // 通知主动互动：用户有操作
+                _plugin.Proactive?.NotifyInteraction();
+
                 if (_plugin.IsAgentMode)
                     HandleAgentMessage(text);
                 else

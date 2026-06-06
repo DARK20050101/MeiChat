@@ -120,20 +120,6 @@ namespace VPet.Plugin.MeiChat.Agent.Tools
         {
             if (main.State == VPet_Simulator.Core.Main.WorkingState.Work)
             {
-                try
-                {
-                    // 通过反射调用 WorkTimer.Stop 或直接设置状态
-                    var wt = main.GetType().GetField("WorkTimer",
-                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public |
-                        System.Reflection.BindingFlags.NonPublic)?.GetValue(main);
-                    if (wt != null)
-                    {
-                        var stopMethod = wt.GetType().GetMethod("Stop");
-                        if (stopMethod != null)
-                            stopMethod.Invoke(wt, new object?[] { null, "user_stop" });
-                    }
-                }
-                catch { }
                 main.State = VPet_Simulator.Core.Main.WorkingState.Nomal;
             }
         }
