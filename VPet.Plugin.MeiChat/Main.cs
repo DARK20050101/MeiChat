@@ -6,7 +6,9 @@ using System.Windows;
 using VPet_Simulator.Windows.Interface;
 using VPet.Plugin.MeiChat.Agent;
 using VPet.Plugin.MeiChat.Agent.Tools;
+using VPet.Plugin.MeiChat.Memory;
 using VPet.Plugin.MeiChat.Models;
+using VPet.Plugin.MeiChat.Schedule;
 using VPet.Plugin.MeiChat.Views;
 
 namespace VPet.Plugin.MeiChat
@@ -26,6 +28,14 @@ namespace VPet.Plugin.MeiChat
         public AgentEngine? AgentEngine { get; private set; }
         /// <summary>工具注册中心</summary>
         public ToolRegistry? ToolRegistry { get; private set; }
+
+        // ===== 持久化模块 =====
+        /// <summary>持久记忆</summary>
+        public MemoryManager? Memory { get; private set; }
+        /// <summary>作息调度</summary>
+        public ScheduleManager? Scheduler { get; private set; }
+        /// <summary>API 用量统计</summary>
+        public ApiStats Stats { get; private set; } = new();
         /// <summary>是否处于 Agent 模式</summary>
         public bool IsAgentMode
         {
@@ -59,9 +69,15 @@ namespace VPet.Plugin.MeiChat
             {
                 _configDir = ExtensionValue.GetMODStorage(PluginName);
                 Config = AppConfig.Load(_configDir);
+
+                // 初始化持久模块
+                Memory = new MemoryManager(_configDir);
+                Scheduler = new ScheduleManager(this, Memory);
+                Stats = new ApiStats();
+
                 InitializeApiClient();
 
-                // 尽早注册 TalkBox，让 VPet 启动时就能识别
+                // 注册 TalkBox
                 if (!_talkBoxRegistered)
                 {
                     var talkBox = new DeepSeekTalkBox(this);
@@ -75,6 +91,9 @@ namespace VPet.Plugin.MeiChat
         public override void GameLoaded()
         {
             base.GameLoaded();
+
+            // 启动作息调度（游戏加载完成后）
+            try { Scheduler?.Start(); } catch { }
 
             // 注册 TalkBox 接入 VPet 原生聊天框
             if (!_talkBoxRegistered)
@@ -148,6 +167,9 @@ namespace VPet.Plugin.MeiChat
         {
             base.EndGame();
             Config.Save();
+            Scheduler?.Stop();
+            Scheduler?.Dispose();
+            Memory?.Save();
             ApiClient?.Dispose();
             ApiClient = null;
         }
@@ -174,8 +196,14 @@ namespace VPet.Plugin.MeiChat
         {
             if (!string.IsNullOrWhiteSpace(Config.ApiKey))
             {
-                ApiClient = new DeepSeekClient(Config.ApiKey, Config.Model,
+                var client = new DeepSeekClient(Config.ApiKey, Config.Model,
                     Config.MaxTokens, Config.Temperature, Config.ApiBaseUrl);
+
+                // 用量追踪
+                client.OnUsage = (prompt, completion, cacheHit, cacheMiss) =>
+                    Stats.RecordUsage(prompt, completion, cacheHit, cacheMiss);
+
+                ApiClient = client;
             }
         }
 
@@ -200,9 +228,19 @@ namespace VPet.Plugin.MeiChat
             ToolRegistry.Register(new EditFileTool());
             ToolRegistry.Register(new ListDirectoryTool());
             ToolRegistry.Register(new SearchCodeTool());
-            ToolRegistry.Register(new RunCommandTool());  // 确认回调由 TalkBox 设置
+            ToolRegistry.Register(new RunCommandTool());
+            ToolRegistry.Register(new ReadWebTool());
+            MemoryTool.Manager = Memory;
+            ToolRegistry.Register(new MemoryTool());
+            ApiStatsTool.Stats = Stats;
+            ToolRegistry.Register(new ApiStatsTool());
+            var fullPrompt = Config.SystemPrompt;
+            if (Memory != null)
+                fullPrompt += Memory.GetMemoryContext();
+            if (Scheduler != null)
+                fullPrompt += Scheduler.GetScheduleContext();
 
-            AgentEngine = new AgentEngine(ApiClient, ToolRegistry, Config.SystemPrompt,
+            AgentEngine = new AgentEngine(ApiClient, ToolRegistry, fullPrompt,
                 workingDirectory: workingDir)
             {
                 AutoMode = Config.AutoMode,

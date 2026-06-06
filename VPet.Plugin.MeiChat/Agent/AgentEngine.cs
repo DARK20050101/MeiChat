@@ -77,15 +77,20 @@ namespace VPet.Plugin.MeiChat.Agent
             // 告知 AI 当前工作目录（非空时）
             if (!string.IsNullOrWhiteSpace(workingDirectory))
             {
+                var defaultDir = "桌面"; // 兜底
+                try { defaultDir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop); } catch { }
+
                 fullPrompt += $@"
 
 ===== 工作目录 =====
 当前工作目录: {workingDirectory}
+默认工作目录: {defaultDir}
 - 读写文件时不指定路径则默认在此目录下操作
 - 可使用 list_directory 查看目录内容
 - 可使用相对路径（如 ""src/Main.cs""）
 - 如果用户指定了其他路径，优先使用用户指定的路径
-- ⚠️ 重要：当用户询问工作目录时，必须如实回复以上路径，不得编造";
+- ⚠️ 重要：当用户询问工作目录时，必须如实回复以上路径，不得编造
+- 如果用户要求恢复默认工作目录，请告知用户可以输入 /reset-workdir 指令";
             }
 
             _systemPrompt = fullPrompt;

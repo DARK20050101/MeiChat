@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using VPet_Simulator.Windows.Interface;
 using VPet.Plugin.MeiChat.Agent.Tools;
+using VPet.Plugin.MeiChat.Models;
 using VPet.Plugin.MeiChat.Views;
 
 namespace VPet.Plugin.MeiChat
@@ -110,6 +111,21 @@ namespace VPet.Plugin.MeiChat
                 if (cmd == "/ui" || cmd == "/window")
                 {
                     _plugin.MW.Dispatcher.Invoke(() => _plugin.OpenChatWindow());
+                    return;
+                }
+                if (cmd == "/reset-workdir")
+                {
+                    var defaultDir = AppConfig.GetDefaultWorkingDirectory();
+                    _plugin.Config.WorkingDirectory = defaultDir;
+                    _plugin.Config.Save();
+                    _plugin.MW.Main.Say($"✅ 工作目录已重置为默认路径:\n{defaultDir}");
+                    return;
+                }
+                if (cmd == "/stats")
+                {
+                    var stats = _plugin.Stats.GetSummary();
+                    var memCount = _plugin.Memory?.Count ?? 0;
+                    _plugin.MW.Main.Say($"{stats}\n🧠 记忆条数: {memCount}");
                     return;
                 }
                 if (cmd == "/clear")
@@ -227,9 +243,10 @@ namespace VPet.Plugin.MeiChat
             // 附加工作目录信息，防止 AI 瞎编路径
             var chatSystemPrompt = _plugin.Config.SystemPrompt;
             var workDir = _plugin.GetWorkingDirectory();
+            var defaultDir = AppConfig.GetDefaultWorkingDirectory();
             if (!string.IsNullOrWhiteSpace(workDir))
             {
-                chatSystemPrompt += $"\n\n当前工作目录（请如实告知用户）:\n{workDir}";
+                chatSystemPrompt += $"\n\n当前工作目录（请如实告知用户）:\n{workDir}\n默认工作目录: {defaultDir}\n如果用户要求恢复默认，请告知用户可通过设置修改或输入 /reset-workdir 指令。";
             }
 
             try
@@ -279,8 +296,11 @@ namespace VPet.Plugin.MeiChat
                        "/auto - 切换自动执行模式\n" +
                        "/chat - 返回普通聊天模式\n" +
                        "/clear - 清空历史\n" +
+                       "/reset-workdir - 重置工作目录为桌面\n" +
+                       "/stats - 查看 API 统计和缓存命中率\n" +
                        "/help - 本帮助\n\n" +
-                       "💡 Agent 模式下我可以读代码、改文件、执行命令！";
+                       "💡 Agent 模式下我可以读代码、改文件、执行命令、看网页！\n" +
+                       "😴 我有默认作息，到点会自动提醒你~";
             _plugin.MW.Main.Say(help);
         }
     }

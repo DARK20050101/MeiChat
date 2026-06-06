@@ -19,6 +19,9 @@ namespace VPet.Plugin.MeiChat
         private readonly double _temperature;
         private readonly string _baseUrl;
 
+        /// <summary>API 用量回调 (promptTokens, completionTokens, cacheHit?, cacheMiss?)</summary>
+        public Action<int, int, int?, int?>? OnUsage { get; set; }
+
         /// <summary>
         /// 创建 API 客户端
         /// </summary>
@@ -61,6 +64,8 @@ namespace VPet.Plugin.MeiChat
             var responseJson = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(responseJson);
             var root = doc.RootElement;
+
+            ParseUsage(root);
 
             var choices = root.GetProperty("choices");
             if (choices.GetArrayLength() > 0)
@@ -188,12 +193,37 @@ namespace VPet.Plugin.MeiChat
             response.EnsureSuccessStatusCode();
 
             var responseJson = await response.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(responseJson);
+            ParseUsage(doc.RootElement);
             return ParseAgentResponse(responseJson);
         }
 
         /// <summary>
         /// 解析包含 tool_calls 的 API 响应
         /// </summary>
+        /// <summary>
+        /// 从响应中解析 usage 并触发回调
+        /// </summary>
+        private void ParseUsage(JsonElement root)
+        {
+            if (OnUsage == null) return;
+            try
+            {
+                if (root.TryGetProperty("usage", out var usage))
+                {
+                    int prompt = usage.GetProperty("prompt_tokens").GetInt32();
+                    int completion = usage.GetProperty("completion_tokens").GetInt32();
+                    int? cacheHit = null, cacheMiss = null;
+                    if (usage.TryGetProperty("prompt_cache_hit_tokens", out var hit))
+                        cacheHit = hit.GetInt32();
+                    if (usage.TryGetProperty("prompt_cache_miss_tokens", out var miss))
+                        cacheMiss = miss.GetInt32();
+                    OnUsage(prompt, completion, cacheHit, cacheMiss);
+                }
+            }
+            catch { /* 用量解析失败不影响主流程 */ }
+        }
+
         private static Agent.AgentResponse ParseAgentResponse(string responseJson)
         {
             using var doc = JsonDocument.Parse(responseJson);
