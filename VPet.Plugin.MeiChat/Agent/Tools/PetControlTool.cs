@@ -115,12 +115,24 @@ namespace VPet.Plugin.MeiChat.Agent.Tools
             return ToolResult.Ok(sb.ToString().TrimEnd());
         }
 
-        /// <summary>停止当前工作</summary>
+        /// <summary>停止当前工作（彻底清理工作状态和提示框）</summary>
         private void StopWork(VPet_Simulator.Core.Main main)
         {
             if (main.State == VPet_Simulator.Core.Main.WorkingState.Work)
             {
+                try
+                {
+                    // 通过 WorkTimer 彻底停止工作，清除"工作中"提示
+                    if (main.WorkTimer != null)
+                    {
+                        var stopMethod = main.WorkTimer.GetType().GetMethod("Stop");
+                        if (stopMethod != null)
+                            stopMethod.Invoke(main.WorkTimer, new object?[] { null, "user_stop" });
+                    }
+                }
+                catch { }
                 main.State = VPet_Simulator.Core.Main.WorkingState.Nomal;
+                main.DisplayDefault();
             }
         }
 

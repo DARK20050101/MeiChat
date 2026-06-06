@@ -20,7 +20,7 @@ namespace VPet.Plugin.MeiChat.Models
         public string ApiBaseUrl { get; set; } = "https://api.deepseek.com/v1";
 
         /// <summary>模型名称</summary>
-        public string Model { get; set; } = "deepseek-chat";
+        public string Model { get; set; } = "deepseek-v4-flash";
 
         /// <summary>最大 Token 数</summary>
         public int MaxTokens { get; set; } = 4096;

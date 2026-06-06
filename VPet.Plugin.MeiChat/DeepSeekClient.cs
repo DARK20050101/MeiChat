@@ -30,7 +30,7 @@ namespace VPet.Plugin.MeiChat
         /// <param name="maxTokens">最大 Token 数</param>
         /// <param name="temperature">温度</param>
         /// <param name="baseUrl">API 地址（默认 DeepSeek）</param>
-        public DeepSeekClient(string apiKey, string model = "deepseek-chat",
+        public DeepSeekClient(string apiKey, string model = "deepseek-v4-flash",
                               int maxTokens = 4096, double temperature = 0.7,
                               string baseUrl = "https://api.deepseek.com/v1")
         {

@@ -264,7 +264,8 @@ namespace VPet.Plugin.MeiChat.Schedule
 
         private static string GetRandomEmoji()
         {
-            string[] emojis = { "🌸", "✨", "💬", "👀", "🤔", "😊", "🎀", "~" };
+            // 简洁风格，不喧宾夺主
+            string[] emojis = { "♪", "·", "~", "" };
             return emojis[Random.Shared.Next(emojis.Length)];
         }
 

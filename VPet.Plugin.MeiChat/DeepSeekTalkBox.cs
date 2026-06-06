@@ -21,6 +21,10 @@ namespace VPet.Plugin.MeiChat
         private Button? _sendBtn;
         private DateTime _lastBubbleUpdate = DateTime.MinValue;
 
+        // Agent 模式 3 小时提醒
+        private DateTime _agentModeStartTime = DateTime.MinValue;
+        private bool _pendingModeChoice = false;
+
         public DeepSeekTalkBox(Main plugin) : base(plugin)
         {
             _plugin = plugin;
@@ -48,15 +52,9 @@ namespace VPet.Plugin.MeiChat
                 if (_plugin.IsAutoMode && !isDestructive)
                     return true;
 
-                // 非 Agent 模式默认拒绝
-                if (!_plugin.IsAgentMode)
-                    return false;
-
-                // 使用自定义弹窗（可滚动、可拖动、可一键开启自动模式）
                 var result = _plugin.MW.Dispatcher.Invoke(() =>
                     ConfirmDialog.Show(command, isDestructive));
 
-                // 用户点击了"不再询问" → 开启自动模式
                 if (result.AutoMode)
                 {
                     _plugin.IsAutoMode = true;
@@ -108,6 +106,34 @@ namespace VPet.Plugin.MeiChat
                 if (string.IsNullOrWhiteSpace(text)) return;
                 var cmd = text.Trim().ToLower();
 
+                // ===== 处理待定的模式选择 =====
+                if (_pendingModeChoice)
+                {
+                    _pendingModeChoice = false;
+                    if (cmd == "1")
+                    {
+                        _agentModeStartTime = DateTime.Now;
+                        _plugin.MW.Main.Say("✅ 继续思考模式，已重新计时。");
+                    }
+                    else if (cmd == "2")
+                    {
+                        _plugin.IsAgentMode = false;
+                        _plugin.MW.Main.Say("💬 已退出思考模式，回到日常聊天。");
+                    }
+                    else
+                    {
+                        _pendingModeChoice = true; // 再问一次
+                        _plugin.MW.Main.Say("输入 1 继续思考模式，输入 2 切换回日常聊天。");
+                    }
+                    return;
+                }
+
+                // ===== 指令处理 =====
+                if (cmd == "/agent")
+                {
+                    ToggleAgentMode();
+                    return;
+                }
                 if (cmd == "/ui" || cmd == "/window" || cmd == "/long")
                 {
                     _plugin.MW.Dispatcher.Invoke(() => _plugin.OpenChatWindow());
@@ -124,14 +150,14 @@ namespace VPet.Plugin.MeiChat
                 if (cmd == "/quiet")
                 {
                     _plugin.Proactive?.SetQuiet(3);
-                    _plugin.MW.Main.Say("🤐 好的，我安静 3 小时，你说话了我再出来~");
+                    _plugin.MW.Main.Say("好的，我安静 3 小时，你说话了我再出来~");
                     return;
                 }
                 if (cmd == "/stats")
                 {
                     var stats = _plugin.Stats.GetSummary();
                     var memCount = _plugin.Memory?.Count ?? 0;
-                    _plugin.MW.Main.Say($"{stats}\n🧠 记忆条数: {memCount}");
+                    _plugin.MW.Main.Say($"{stats}\n记忆条数: {memCount}");
                     return;
                 }
                 if (cmd == "/clear")
@@ -146,11 +172,6 @@ namespace VPet.Plugin.MeiChat
                     ShowHelp();
                     return;
                 }
-                if (cmd == "/agent")
-                {
-                    ToggleAgentMode();
-                    return;
-                }
                 if (cmd == "/auto")
                 {
                     ToggleAutoMode();
@@ -161,18 +182,30 @@ namespace VPet.Plugin.MeiChat
                     if (_plugin.IsAgentMode)
                     {
                         _plugin.IsAgentMode = false;
-                        _plugin.MW.Main.Say("💬 已切换回普通聊天模式");
+                        _agentModeStartTime = DateTime.MinValue;
+                        _plugin.MW.Main.Say("已退出思考模式，回到日常聊天。");
                     }
                     return;
                 }
 
-                // 通知主动互动：用户有操作
+                // ===== 3 小时提醒检查 =====
+                if (_plugin.IsAgentMode && _agentModeStartTime != DateTime.MinValue)
+                {
+                    if ((DateTime.Now - _agentModeStartTime).TotalHours >= 3)
+                    {
+                        _pendingModeChoice = true;
+                        _plugin.MW.Main.Say("你已经处于思考模式 3 小时了，是否继续？\n输入 1 继续思考模式，输入 2 切换回日常聊天。");
+                        return;
+                    }
+                }
+
+                // ===== 处理消息 =====
                 _plugin.Proactive?.NotifyInteraction();
 
                 if (_plugin.IsAgentMode)
                     HandleAgentMessage(text);
                 else
-                    HandleChatMessage(text);
+                    HandleMessage(text);
             }
             catch (Exception ex)
             {
@@ -180,13 +213,15 @@ namespace VPet.Plugin.MeiChat
             }
         }
 
-        // ===== Agent 模式 =====
+        // ===== Agent 模式切换 =====
 
         private void ToggleAgentMode()
         {
             _plugin.IsAgentMode = !_plugin.IsAgentMode;
             if (_plugin.IsAgentMode)
             {
+                _agentModeStartTime = DateTime.Now;
+                _pendingModeChoice = false;
                 _plugin.InitializeAgentEngine();
                 if (_plugin.AgentEngine == null)
                 {
@@ -195,28 +230,27 @@ namespace VPet.Plugin.MeiChat
                     return;
                 }
                 var autoStatus = _plugin.IsAutoMode ? "（自动模式已开启）" : "";
-                _plugin.MW.Main.Say($"🤖 Agent 模式已开启！{autoStatus}\n我可以帮你读代码、改文件、执行命令。\n💡 输入 /auto 切换自动模式，/chat 返回聊天模式");
+                _plugin.MW.Main.Say($"思考模式已开启！{autoStatus}\n我可以帮你读代码、改文件、执行命令。\n3 小时后我会提醒你确认是否继续。\n输入 /chat 可随时退出。");
             }
             else
             {
-                _plugin.MW.Main.Say("💬 已退出 Agent 模式");
+                _agentModeStartTime = DateTime.MinValue;
+                _pendingModeChoice = false;
+                _plugin.MW.Main.Say("已退出思考模式，回到日常聊天。");
             }
         }
 
         private void ToggleAutoMode()
         {
-            if (!_plugin.IsAgentMode)
-            {
-                _plugin.MW.Main.Say("💡 请在 Agent 模式下使用 /auto");
-                return;
-            }
             _plugin.IsAutoMode = !_plugin.IsAutoMode;
-            var status = _plugin.IsAutoMode ? "开启 ✅" : "关闭 ❌";
-            _plugin.MW.Main.Say($"🤖 自动模式已{status}\n" +
+            var status = _plugin.IsAutoMode ? "开启" : "关闭";
+            _plugin.MW.Main.Say($"自动模式已{status}\n" +
                 (_plugin.IsAutoMode
                     ? "命令自动执行，危险操作仍需确认"
                     : "每次执行命令前都会询问你"));
         }
+
+        // ===== 思考模式（工具可用） =====
 
         private void HandleAgentMessage(string text)
         {
@@ -225,94 +259,72 @@ namespace VPet.Plugin.MeiChat
 
             engine.WorkingDirectory = _plugin.GetWorkingDirectory();
             _plugin.AddMessage(true, text);
-            _plugin.MW.Main.Say("🤔 让我看看...");
+            _plugin.MW.Main.Say("让我看看...");
 
-            var result = engine.ExecuteAsync(text).GetAwaiter().GetResult();
-            _plugin.AddMessage(false, result);
+            try
+            {
+                var result = engine.ExecuteAsync(text).GetAwaiter().GetResult();
+                _plugin.AddMessage(false, result);
 
-            if (!string.IsNullOrWhiteSpace(result))
-                _plugin.MW.Main.Say(result.TrimStart());
+                if (!string.IsNullOrWhiteSpace(result))
+                    _plugin.MW.Main.Say(result.TrimStart());
+            }
+            catch (Exception ex)
+            {
+                _plugin.MW.Main.Say($"抱歉出错了: {ex.Message}");
+            }
         }
 
-        // ===== 普通聊天模式（极致流式输出） =====
+        // ===== 日常聊天 =====
 
-        private void HandleChatMessage(string text)
+        private void HandleMessage(string text)
         {
-            if (_plugin.ApiClient == null)
+            _plugin.InitializeAgentEngine();
+            var engine = _plugin.AgentEngine;
+            if (engine == null)
             {
                 _plugin.MW.Main.Say("⚠️ 请先在设置中配置 API Key");
                 return;
             }
 
+            engine.WorkingDirectory = _plugin.GetWorkingDirectory();
             _plugin.AddMessage(true, text);
 
-            var fullText = new StringBuilder();
-            var hasContent = false;
-
-            // 附加工作目录信息，防止 AI 瞎编路径
-            var chatSystemPrompt = _plugin.Config.SystemPrompt;
-            var workDir = _plugin.GetWorkingDirectory();
-            var defaultDir = AppConfig.GetDefaultWorkingDirectory();
-            // 要求纯文本输出（TalkBox 不支持 Markdown）
-            chatSystemPrompt += "\n\n回复要求：使用纯文本，自然口语化的表达，简洁明了。不要使用 Markdown 格式（不要用 **、##、``` 等符号），不要使用列表符号。需要分段时用换行分隔即可。";
-            if (!string.IsNullOrWhiteSpace(workDir))
-            {
-                chatSystemPrompt += $"\n\n当前工作目录（请如实告知用户）:\n{workDir}\n默认工作目录: {defaultDir}\n如果用户要求恢复默认，请告知用户可通过设置修改或输入 /reset-workdir 指令。";
-            }
+            _plugin.MW.Main.Say("让我看看...");
 
             try
             {
-                _plugin.ApiClient.SendMessageStreamAsync(
-                    _plugin.GetMessageHistory(),
-                    onContent: chunk =>
-                    {
-                        fullText.Append(chunk);
+                var result = engine.ExecuteAsync(text).GetAwaiter().GetResult();
+                _plugin.AddMessage(false, result);
 
-                        // BeginInvoke 异步派发，不阻塞网络接收线程
-                        _plugin.MW.Dispatcher.BeginInvoke((Action)(() =>
-                        {
-                            var display = fullText.ToString().TrimStart();
-                            if (display.Length > 0)
-                            {
-                                if (!hasContent) hasContent = true;
-                                _plugin.MW.Main.Say(display);
-                            }
-                        }));
-                    },
-                    onFinish: _ =>
-                    {
-                        // onContent 已完成最后一块的显示，无需重复调用
-                    },
-                    onError: error =>
-                    {
-                        _plugin.MW.Dispatcher.BeginInvoke((Action)(() =>
-                            _plugin.MW.Main.Say($"⚠️ {error}")));
-                    },
-                    systemPrompt: chatSystemPrompt
-                ).GetAwaiter().GetResult();
+                if (!string.IsNullOrWhiteSpace(result))
+                {
+                    _plugin.MW.Main.Say(result.TrimStart());
+                }
             }
             catch (Exception ex)
             {
-                _plugin.MW.Main.Say($"⚠️ {ex.Message}");
+                _plugin.MW.Main.Say($"抱歉出错了: {ex.Message}");
             }
-
-            _plugin.AddMessage(false, fullText.ToString());
         }
+
+        // ===== 帮助 =====
 
         private void ShowHelp()
         {
-            var help = "📋 可用指令：\n" +
-                       "/ui 或 /long - 打开长聊天框（显示历史）\n" +
-                       "/agent - 切换 Agent 模式 🤖\n" +
+            var help = "可用指令：\n" +
+                       "/agent - 切换思考模式\n" +
+                       "/chat - 退出思考模式\n" +
+                       "/ui 或 /long - 打开长聊天框\n" +
                        "/auto - 切换自动执行模式\n" +
-                       "/chat - 返回普通聊天模式\n" +
                        "/clear - 清空历史\n" +
                        "/quiet - 安静 3 小时\n" +
                        "/reset-workdir - 重置工作目录为桌面\n" +
-                       "/stats - 查看 API 统计和缓存命中率\n" +
+                       "/stats - 查看 API 统计\n" +
                        "/help - 本帮助\n\n" +
-                       "💡 Agent 模式下我可以读代码、改文件、执行命令、看网页！\n" +
-                       "😴 我有默认作息，到点会自动工作/休息/睡觉~";
+                       "日常聊天直接说话，复杂任务我会自动处理。\n" +
+                       "/agent 开启思考模式后，可读写文件、执行命令。\n" +
+                       "我有默认作息，到点会自动工作/休息/睡觉。";
             _plugin.MW.Main.Say(help);
         }
     }

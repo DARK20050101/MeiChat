@@ -19,13 +19,13 @@ namespace VPet.Plugin.MeiChat.Schedule
         /// <summary>默认作息</summary>
         public static List<ScheduleSlot> DefaultSchedule() => new()
         {
-            new() { Name = "起床",      Hour = 8,  Minute = 0,  Action = "wakeup", Icon = "🌅", Speech = "早安！新的一天开始了~今天也要加油哦！" },
-            new() { Name = "上午工作",  Hour = 9,  Minute = 0,  Action = "work",   Icon = "💻", Speech = "开始工作啦！有什么需要我帮忙的吗？" },
-            new() { Name = "午饭",      Hour = 12, Minute = 0,  Action = "eat",    Icon = "🍚", Speech = "午饭时间到~记得吃点好的！" },
-            new() { Name = "下午工作",  Hour = 14, Minute = 0,  Action = "work",   Icon = "💻", Speech = "下午继续努力~有什么代码需要写吗？" },
-            new() { Name = "休息",      Hour = 17, Minute = 0,  Action = "rest",   Icon = "🎮", Speech = "工作辛苦了！休息一下吧~" },
-            new() { Name = "晚饭",      Hour = 19, Minute = 0,  Action = "eat",    Icon = "🍜", Speech = "晚饭时间！要好好吃饭哦。" },
-            new() { Name = "睡觉",      Hour = 23, Minute = 0,  Action = "sleep",  Icon = "😴", Speech = "晚安~明天见！做个好梦。" },
+            new() { Name = "起床",      Hour = 8,  Minute = 0,  Action = "wakeup", Icon = "", Speech = "早安！新的一天开始了~今天也要加油哦！" },
+            new() { Name = "上午工作",  Hour = 9,  Minute = 0,  Action = "work",   Icon = "", Speech = "开始工作啦！有什么需要我帮忙的吗？" },
+            new() { Name = "午饭",      Hour = 12, Minute = 0,  Action = "eat",    Icon = "", Speech = "午饭时间到~记得吃点好的！" },
+            new() { Name = "下午工作",  Hour = 14, Minute = 0,  Action = "work",   Icon = "", Speech = "下午继续努力~有什么代码需要写吗？" },
+            new() { Name = "休息",      Hour = 17, Minute = 0,  Action = "rest",   Icon = "", Speech = "工作辛苦了！休息一下吧~" },
+            new() { Name = "晚饭",      Hour = 19, Minute = 0,  Action = "eat",    Icon = "", Speech = "晚饭时间！要好好吃饭哦。" },
+            new() { Name = "睡觉",      Hour = 23, Minute = 0,  Action = "sleep",  Icon = "", Speech = "晚安~明天见！做个好梦。" },
         };
 
         public IReadOnlyList<ScheduleSlot> Slots => _slots.AsReadOnly();
@@ -121,9 +121,13 @@ namespace VPet.Plugin.MeiChat.Schedule
                         break;
 
                     case "sleep":
-                        // 先停工作，再睡觉
+                        // 先彻底停工作，再睡觉
                         if (main.State == VPet_Simulator.Core.Main.WorkingState.Work)
+                        {
+                            try { main.WorkTimer?.GetType().GetMethod("Stop")?.Invoke(main.WorkTimer, new object?[] { null, "schedule_sleep" }); } catch { }
                             main.State = VPet_Simulator.Core.Main.WorkingState.Nomal;
+                            main.DisplayDefault();
+                        }
                         main.DisplaySleep(true);
                         break;
                 }
@@ -161,7 +165,7 @@ namespace VPet.Plugin.MeiChat.Schedule
             sb.AppendLine("\n===== 我的作息 =====");
             foreach (var s in _slots)
             {
-                sb.AppendLine($"  {s.Icon} {s.Hour:D2}:{s.Minute:D2} {s.Name}");
+                sb.AppendLine($"  {s.Hour:D2}:{s.Minute:D2} {s.Name}");
             }
             sb.AppendLine("到时间我会自动提醒你并执行对应动作。");
             sb.AppendLine("你可以告诉我修改作息，比如「把午饭调到12:30」");

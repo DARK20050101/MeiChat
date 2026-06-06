@@ -111,7 +111,7 @@ namespace VPet.Plugin.MeiChat.Views
             _config.Model = ModelBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(_config.Model))
             {
-                _config.Model = "deepseek-chat";
+                _config.Model = "deepseek-v4-flash";
             }
 
             // Max Tokens
