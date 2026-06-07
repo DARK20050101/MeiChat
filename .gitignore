@@ -13,3 +13,8 @@ obj/
 # Test plugin
 TestPlugin/bin/
 TestPlugin/obj/
+
+# User data (conversation history, memory, config copies)
+*.history.json
+*.memory.json
+MeiChat.config.json

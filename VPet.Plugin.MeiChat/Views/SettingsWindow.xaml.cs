@@ -73,6 +73,7 @@ namespace VPet.Plugin.MeiChat.Views
                 }
             }
 
+            PetNameBox.Text = _config.PetName;
             WorkDirBox.Text = _config.WorkingDirectory;
             SystemPromptBox.Text = _config.SystemPrompt;
         }
@@ -106,6 +107,9 @@ namespace VPet.Plugin.MeiChat.Views
             _config.Temperature = TempSlider.Value;
             _config.WorkingDirectory = WorkDirBox.Text.Trim();
             _config.SystemPrompt = SystemPromptBox.Text.Trim();
+            _config.PetName = PetNameBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(_config.PetName))
+                _config.PetName = "芽衣";
 
             // 模型：优先使用 ModelBox 中输入的文本
             _config.Model = ModelBox.Text.Trim();

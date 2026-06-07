@@ -163,7 +163,7 @@ namespace VPet.Plugin.MeiChat.Views
 
             panel.Children.Add(new TextBlock
             {
-                Text = isUser ? "🧑 我" : "🌸 芽衣",
+                Text = isUser ? "🧑 我" : $"🌸 {_plugin.Config.PetName}",
                 FontSize = 11,
                 Foreground = Brushes.Gray,
                 Margin = new Thickness(4, 0, 0, 2)

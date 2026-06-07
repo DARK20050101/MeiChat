@@ -28,6 +28,10 @@ namespace VPet.Plugin.MeiChat.Models
         /// <summary>温度参数 (0.0 ~ 1.0)</summary>
         public double Temperature { get; set; } = 0.7;
 
+        // ===== 角色名称 =====
+        /// <summary>桌宠名字（显示在聊天框中）</summary>
+        public string PetName { get; set; } = "芽衣";
+
         // ===== 系统提示词 =====
         /// <summary>系统提示词（角色设定）</summary>
         public string SystemPrompt { get; set; } =

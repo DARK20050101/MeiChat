@@ -100,6 +100,16 @@
                 </StackPanel>
             </Border>
 
+            <!-- ====== 桌宠名字 ====== -->
+            <Border Background="#FFF0F5" CornerRadius="12" Padding="16" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="🎀 桌宠名字" FontSize="16" FontWeight="SemiBold"
+                               Foreground="#555" Margin="0,0,0,12"/>
+                    <TextBox x:Name="PetNameBox" Height="36" FontSize="13"
+                             BorderBrush="#DDD" BorderThickness="1" Padding="8,0"/>
+                </StackPanel>
+            </Border>
+
             <!-- ====== 工作目录 ====== -->
             <Border Background="#F0F8FF" CornerRadius="12" Padding="16" Margin="0,0,0,16">
                 <StackPanel>

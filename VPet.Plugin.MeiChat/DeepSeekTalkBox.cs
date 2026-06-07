@@ -20,6 +20,9 @@ namespace VPet.Plugin.MeiChat
         private TextBox? _inputBox;
         private Button? _sendBtn;
         private DateTime _lastBubbleUpdate = DateTime.MinValue;
+        private volatile int _requestId;
+        private bool _isProcessing;
+        private CancellationTokenSource? _cts;
 
         // Agent 模式 3 小时提醒
         private DateTime _agentModeStartTime = DateTime.MinValue;
@@ -150,9 +153,21 @@ namespace VPet.Plugin.MeiChat
 
         public override void Responded(string text)
         {
+            var myId = Interlocked.Increment(ref _requestId);
             try
             {
                 if (string.IsNullOrWhiteSpace(text)) return;
+
+                // 如果有正在处理的任务，打断它，处理新的
+                if (_isProcessing)
+                {
+                    _cts?.Cancel();
+                    _cts = null;
+                    _plugin.MW.Main.Say("我还在想上次的，先处理你这次的吧~");
+                    System.Threading.Thread.Sleep(300);
+                }
+                _isProcessing = true;
+                _cts = new CancellationTokenSource();
                 var cmd = text.Trim().ToLower();
 
                 // ===== 处理待定的模式选择 =====
@@ -260,6 +275,10 @@ namespace VPet.Plugin.MeiChat
             {
                 _plugin.MW.Main.Say($"⚠️ {ex.Message}");
             }
+            finally
+            {
+                if (myId == _requestId) _isProcessing = false;
+            }
         }
 
         // ===== Agent 模式切换 =====
@@ -314,13 +333,17 @@ namespace VPet.Plugin.MeiChat
 
             try
             {
-                var result = engine.ExecuteAsync(text).GetAwaiter().GetResult();
+                var result = engine.ExecuteAsync(text, _cts?.Token ?? CancellationToken.None).GetAwaiter().GetResult();
 
                 if (!string.IsNullOrWhiteSpace(result))
                     _plugin.MW.Main.Say(result.TrimStart());
                 else
                     _plugin.MW.Main.Say("嗯，处理完了，有什么需要补充的吗？");
                 _plugin.AddMessage(false, result ?? "");
+            }
+            catch (OperationCanceledException)
+            {
+                // 被用户打断，不处理
             }
             catch (Exception ex)
             {
@@ -349,13 +372,17 @@ namespace VPet.Plugin.MeiChat
 
             try
             {
-                var result = engine.ExecuteAsync(text).GetAwaiter().GetResult();
+                var result = engine.ExecuteAsync(text, _cts?.Token ?? CancellationToken.None).GetAwaiter().GetResult();
 
                 if (!string.IsNullOrWhiteSpace(result))
                     _plugin.MW.Main.Say(result.TrimStart());
                 else
                     _plugin.MW.Main.Say("嗯，处理完了。");
                 _plugin.AddMessage(false, result ?? "");
+            }
+            catch (OperationCanceledException)
+            {
+                // 被用户打断
             }
             catch (Exception ex)
             {

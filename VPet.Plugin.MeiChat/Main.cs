@@ -78,6 +78,9 @@ namespace VPet.Plugin.MeiChat
                 Proactive = new ProactiveInteraction(this, Memory);
                 Stats = new ApiStats();
 
+                // 加载历史聊天记录
+                LoadHistory();
+
                 InitializeApiClient();
 
                 // 注册 TalkBox
@@ -293,17 +296,52 @@ namespace VPet.Plugin.MeiChat
             ApiClient = null;
         }
 
-        // ===== 对话历史（供 TalkBox 使用） =====
+        // ===== 对话历史（持久化，重启不丢失） =====
+        private static readonly string HistoryFileName = "MeiChat.history.json";
+        private const int MaxHistory = 100;
+
         public List<DeepSeekClient.ChatMessage> GetMessageHistory()
             => new List<DeepSeekClient.ChatMessage>(_messages);
 
         public void AddMessage(bool isUser, string content)
         {
             _messages.Add(new DeepSeekClient.ChatMessage { IsUser = isUser, Content = content });
-            while (_messages.Count > 50) _messages.RemoveAt(0);
+            while (_messages.Count > MaxHistory) _messages.RemoveAt(0);
+            SaveHistory();
         }
 
-        public void ClearHistory() => _messages.Clear();
+        public void ClearHistory()
+        {
+            _messages.Clear();
+            SaveHistory();
+        }
+
+        private void LoadHistory()
+        {
+            try
+            {
+                var path = Path.Combine(_configDir, HistoryFileName);
+                if (File.Exists(path))
+                {
+                    var json = File.ReadAllText(path);
+                    var loaded = System.Text.Json.JsonSerializer.Deserialize<List<DeepSeekClient.ChatMessage>>(json);
+                    if (loaded != null) _messages.AddRange(loaded);
+                    while (_messages.Count > MaxHistory) _messages.RemoveAt(0);
+                }
+            }
+            catch { }
+        }
+
+        private void SaveHistory()
+        {
+            try
+            {
+                var path = Path.Combine(_configDir, HistoryFileName);
+                var json = System.Text.Json.JsonSerializer.Serialize(_messages);
+                File.WriteAllText(path, json);
+            }
+            catch { }
+        }
 
         public void ReinitializeApiClient()
         {
@@ -355,6 +393,8 @@ namespace VPet.Plugin.MeiChat
             ApiStatsTool.Stats = Stats;
             ToolRegistry.Register(new ApiStatsTool());
             ToolRegistry.Register(new PetControlTool(this));
+            ToolRegistry.Register(new SetPetNameTool(this));
+            ToolRegistry.Register(new ShowHistoryTool(this));
             var fullPrompt = Config.SystemPrompt;
             if (Memory != null)
                 fullPrompt += Memory.GetMemoryContext();
