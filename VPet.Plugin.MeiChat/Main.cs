@@ -114,8 +114,123 @@ namespace VPet.Plugin.MeiChat
                 }
             }
 
-            // ✅ 原生 TalkBox 已注册，自定义窗口不再自动弹出
-            // 需要时可通过聊天输入 "/ui" 唤出
+            // 注册拖放文件支持
+            RegisterFileDrop();
+        }
+
+        /// <summary>注册拖放文件到桌宠窗口上的功能</summary>
+        private void RegisterFileDrop()
+        {
+            try
+            {
+                if (Application.Current?.MainWindow is Window mainWin)
+                {
+                    mainWin.AllowDrop = true;
+                    mainWin.DragEnter += (s, e) =>
+                    {
+                        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+                            e.Effects = DragDropEffects.Copy;
+                    };
+                    mainWin.Drop += async (s, e) =>
+                    {
+                        if (e.Data.GetDataPresent(DataFormats.FileDrop) &&
+                            e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
+                        {
+                            var path = files[0];
+                            var name = Path.GetFileName(path);
+
+                            // 告知用户收到文件
+                            MW.Main.Say($"收到文件 {name}，让我看看~");
+
+                            // 延迟一下让前一条消息显示
+                            await System.Threading.Tasks.Task.Delay(500);
+
+                            // 判断是文件还是文件夹
+                            if (File.Exists(path))
+                            {
+                                var ext = Path.GetExtension(path).ToLower();
+                                var textExts = new HashSet<string> {
+                                    ".cs", ".py", ".js", ".ts", ".cpp", ".c", ".h", ".java",
+                                    ".txt", ".md", ".json", ".xml", ".yaml", ".yml", ".toml",
+                                    ".html", ".css", ".scss", ".php", ".rb", ".go", ".rs",
+                                    ".sh", ".bat", ".ps1", ".sql", ".cfg", ".ini", ".conf",
+                                    ".sln", ".csproj", ".xaml"
+                                };
+
+                                if (textExts.Contains(ext))
+                                {
+                                    var content = await File.ReadAllTextAsync(path);
+                                    var maxLen = 3000;
+                                    if (content.Length > maxLen)
+                                        content = content[..maxLen] + $"\n\n...（文件较长，仅显示前 {maxLen} 字符）";
+
+                                    var msg = $"帮我分析这个文件 {name}，内容如下：\n```\n{content}\n```";
+                                    System.Threading.Tasks.Task.Run(() =>
+                                    {
+                                        try
+                                        {
+                                            foreach (var api in MW.TalkAPI)
+                                            {
+                                                if (api is DeepSeekTalkBox talkBox)
+                                                {
+                                                    talkBox.Responded(msg);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        catch { }
+                                    });
+                                }
+                                else
+                                {
+                                    MW.Main.Say($"这是 {name}，我暂时只能分析文本文件哦~");
+                                }
+                            }
+                            else if (Directory.Exists(path))
+                            {
+                                // 是文件夹：列出结构交给 AI
+                                var dirInfo = new DirectoryInfo(path);
+                                var dirTree = new System.Text.StringBuilder();
+                                dirTree.AppendLine($"项目文件夹: {name}");
+                                dirTree.AppendLine($"完整路径: {path}");
+                                dirTree.AppendLine();
+
+                                // 列出顶层文件和子文件夹
+                                try
+                                {
+                                    foreach (var d in dirInfo.GetDirectories().Take(20))
+                                        dirTree.AppendLine($"  📁 {d.Name}/");
+                                    foreach (var f in dirInfo.GetFiles().Take(30))
+                                        dirTree.AppendLine($"  📄 {f.Name} ({(f.Length > 1024 ? $"{f.Length / 1024}KB" : $"{f.Length}B")})");
+                                }
+                                catch { }
+
+                                var msg = $"帮我看看这个项目 {name}，目录结构如下，总结一下这是什么项目：\n```\n{dirTree}\n```";
+                                System.Threading.Tasks.Task.Run(() =>
+                                {
+                                    try
+                                    {
+                                        foreach (var api in MW.TalkAPI)
+                                        {
+                                            if (api is DeepSeekTalkBox talkBox)
+                                            {
+                                                talkBox.Responded(msg);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    catch { }
+                                });
+                            }
+                            else
+                            {
+                                MW.Main.Say($"没找到这个文件或文件夹...");
+                            }
+                        }
+                    };
+                }
+            }
+            catch { }
         }
 
         public override void Setting()
@@ -234,7 +349,7 @@ namespace VPet.Plugin.MeiChat
             ToolRegistry.Register(new SearchCodeTool());
             ToolRegistry.Register(new RunCommandTool());
             ToolRegistry.Register(new ReadWebTool());
-            ToolRegistry.Register(new SearchWebTool());
+            //ToolRegistry.Register(new SearchWebTool()); // 联网搜索暂时禁用，需要时可取消注释
             MemoryTool.Manager = Memory;
             ToolRegistry.Register(new MemoryTool());
             ApiStatsTool.Stats = Stats;

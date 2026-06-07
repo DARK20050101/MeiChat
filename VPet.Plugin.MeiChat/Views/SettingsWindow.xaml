@@ -48,8 +48,8 @@
                               BorderBrush="#DDD"
                               SelectionChanged="ModelPresetBox_SelectionChanged">
                         <ComboBoxItem Tag="">自定义（在下方输入）</ComboBoxItem>
-                        <ComboBoxItem Tag="deepseek-chat">DeepSeek V3（deepseek-chat）</ComboBoxItem>
-                        <ComboBoxItem Tag="deepseek-v4-flash" IsSelected="True">DeepSeek V4 Flash</ComboBoxItem>
+                        <ComboBoxItem Tag="deepseek-chat" IsSelected="True">DeepSeek V3（deepseek-chat）</ComboBoxItem>
+                        <ComboBoxItem Tag="deepseek-v4-flash">DeepSeek V4 Flash</ComboBoxItem>
                         <ComboBoxItem Tag="deepseek-reasoner">DeepSeek R1（deepseek-reasoner）</ComboBoxItem>
                         <ComboBoxItem Tag="deepseek-v4-flash">DeepSeek V4 Flash</ComboBoxItem>
                         <ComboBoxItem Tag="deepseek-pro">DeepSeek Pro</ComboBoxItem>

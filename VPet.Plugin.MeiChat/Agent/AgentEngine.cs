@@ -58,6 +58,7 @@ AI 会自动判断：简单聊天直接回复，复杂任务调用工具完成�
 - 用户问项目、代码、文件 → 调用 list_directory / read_file 等了解情况
 - 用户要求创建或修改文件 → 调用 write_file / edit_file
 - 用户要求编译、测试、运行 → 调用 run_command
+- 用户给了网址 → 用 read_webpage 读取内容，给用户总结要点
 - 工具报错 → 分析原因、修复、重试，多次失败则向用户说明
 - 任务完成后，总结做了什么、结果如何
 - 回到日常聊天状态";
@@ -123,11 +124,21 @@ AI 会自动判断：简单聊天直接回复，复杂任务调用工具完成�
                     ct.ThrowIfCancellationRequested();
 
                     // 调用 DeepSeek API
-                    var response = await _client.SendWithToolsAsync(
-                        _messages,
-                        _toolRegistry.GetDefinitions(),
-                        _systemPrompt,
-                        ct);
+                    Agent.AgentResponse response;
+                    try
+                    {
+                        response = await _client.SendWithToolsAsync(
+                            _messages,
+                            _toolRegistry.GetDefinitions(),
+                            _systemPrompt,
+                            ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        // API 调用失败，清理本轮加入的消息，恢复引擎状态
+                        CleanupLastTurn();
+                        return $"抱歉，调用 AI 时出了点问题: {ex.Message}。你可以重新说一遍，我会重新处理。";
+                    }
 
                     // 处理回复
                     if (response.ToolCalls != null && response.ToolCalls.Count > 0)
@@ -212,5 +223,13 @@ AI 会自动判断：简单聊天直接回复，复杂任务调用工具完成�
         /// 获取当前消息历史（用于调试或展示）
         /// </summary>
         public IReadOnlyList<AgentMessage> GetHistory() => _messages.AsReadOnly();
+
+        /// <summary>
+        /// 发生错误时完全清空消息历史，避免消息格式错误导致连环失败
+        /// </summary>
+        private void CleanupLastTurn()
+        {
+            _messages.Clear();
+        }
     }
 }

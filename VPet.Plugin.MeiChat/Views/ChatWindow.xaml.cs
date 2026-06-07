@@ -226,6 +226,34 @@ namespace VPet.Plugin.MeiChat.Views
             if (string.IsNullOrWhiteSpace(text)) return;
 
             InputBox.Clear();
+
+            // 拦截指令，转发到 TalkBox 处理
+            var cmd = text.Trim().ToLower();
+            if (cmd.StartsWith("/"))
+            {
+                // 通过插件主逻辑处理指令
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    try
+                    {
+                        // 查找已注册的 TalkBox 并调用 Responded
+                        foreach (var api in _plugin.MW.TalkAPI)
+                        {
+                            if (api is DeepSeekTalkBox talkBox)
+                            {
+                                talkBox.Responded(text);
+                                break;
+                            }
+                        }
+                    }
+                    catch { }
+                });
+                _isProcessing = false;
+                BtnSend.IsEnabled = true;
+                InputBox.Focus();
+                return;
+            }
+
             AppendMessage(text, isUser: true, scrollToBottom: true);
             _messages.Add(new DeepSeekClient.ChatMessage { IsUser = true, Content = text });
             // 同步到主历史

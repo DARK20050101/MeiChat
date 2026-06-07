@@ -90,45 +90,54 @@ namespace VPet.Plugin.MeiChat
             System.Threading.Tasks.Task.Run(() => Responded(text));
         }
 
-        /// <summary>根据用户输入选择合适的思考提示词</summary>
+        /// <summary>人性化思考提示词</summary>
         private string PickThinkingPhrase(string userInput)
         {
             var input = userInput.ToLower();
 
-            if (input.Contains("搜") || input.Contains("查") || input.Contains("找") || input.Contains("搜索") || input.Contains("百度") || input.Contains("谷歌"))
-                return "我查一下相关资料...";
+            // 拖放文件或分析文件优先
+            if (input.StartsWith("帮我分析这个文件") || input.Contains("分析") && input.Contains("文件"))
+                return RandomOf("让我看看这个文件~", "来咯，我看看里面写了什么~", "嗯我读一下~");
 
-            if (input.Contains("代码") || input.Contains("写") || input.Contains("改") || input.Contains("修复") || input.Contains("bug") || input.Contains("报错") || input.Contains("错误"))
-                return "让我看一下代码...";
+            // 明确的场景匹配
+            if (input.Contains("http") || input.Contains("网页") || input.Contains("网址") || input.Contains("链接"))
+                return RandomOf("让我看看有什么好看的~", "哎呀，我看看这个网页...", "来咯，帮你看看~");
 
-            if (input.Contains("读") || input.Contains("文件") || input.Contains("打开") || input.Contains("项目") || input.Contains("目录"))
-                return "让我看看文件...";
+            if (input.Contains("编译") || input.Contains("运行") || input.Contains("build"))
+                return RandomOf("正在请图灵老祖出山...", "我来跑一下看看~", "好嘞，运行一波！");
 
-            if (input.Contains("工作") || input.Contains("作息") || input.Contains("睡觉") || input.Contains("起床"))
-                return "好的~";
+            if (input.Contains("写") || input.Contains("创建") || input.Contains("新建") || input.Contains("生成"))
+                return RandomOf("可给我累坏了...开玩笑的，马上好！", "来咯，写一个~", "好嘞，这就安排上！");
 
-            if (input.Contains("编译") || input.Contains("运行") || input.Contains("构建") || input.Contains("build") || input.Contains("执行"))
-                return "我来运行看看...";
+            if (input.Contains("改") || input.Contains("修") || input.Contains("修复") || input.Contains("编辑"))
+                return RandomOf("让我看看哪里不对...", "找到问题了，改一下就好~", "小问题，我来修修~");
 
-            if (input.Contains("解释") || input.Contains("什么") || input.Contains("怎么") || input.Contains("为什么") || input.Contains("如何"))
-                return "我想想...";
+            if (input.Contains("工作") || input.Contains("干活") || input.Contains("开始"))
+                return RandomOf("好嘞~", "来咯！", "收到收到~");
 
-            if (input.Contains("记忆") || input.Contains("记住") || input.Contains("忘了"))
-                return "让我回忆一下...";
+            if (input.Contains("搜") || input.Contains("找") || input.Contains("查") || input.Contains("搜索"))
+                return RandomOf("我找找看...", "让我翻一翻~", "嗯我来查查~");
 
-            if (input.Contains("网页") || input.Contains("网址") || input.Contains("http") || input.Contains("https") || input.Contains("com") || input.Contains("cn"))
-                return "我去看看这个网页...";
+            if (input.Contains("睡觉") || input.Contains("晚安") || input.Contains("睡"))
+                return RandomOf("晚安呀~", "好梦！", "明天见~");
 
-            if (input.Contains("总结") || input.Contains("概括") || input.Contains("摘要"))
-                return "我来看一下重点...";
+            if (input.Contains("起床") || input.Contains("早安"))
+                return RandomOf("早安！", "起来啦~", "早上好呀~");
 
-            if (input.Contains("翻译") || input.Contains("英文") || input.Contains("中文"))
-                return "让我看看...";
-
-            // 随机选一个通用提示
-            string[] generic = { "让我看看...", "我想想...", "好的我来处理...", "让我先了解一下...", "嗯我来看看...", "好的请稍等..." };
-            return generic[Random.Shared.Next(generic.Length)];
+            // 通用短语（随机轮换）
+            return RandomOf(
+                "让我看看...",
+                "好嘞~",
+                "嗯我来看看~",
+                "来咯~",
+                "收到！",
+                "哎呀我看看~",
+                "好滴~"
+            );
         }
+
+        private static string RandomOf(params string[] options)
+            => options[Random.Shared.Next(options.Length)];
 
         private T? GetField<T>(string name) where T : class
         {
@@ -315,7 +324,8 @@ namespace VPet.Plugin.MeiChat
             }
             catch (Exception ex)
             {
-                _plugin.MW.Main.Say($"抱歉出错了: {ex.Message}");
+                _plugin.ResetAgentEngine();
+                _plugin.MW.Main.Say($"抱歉出错了，已恢复状态，可以继续提问。{ex.Message}");
             }
         }
 
@@ -349,7 +359,8 @@ namespace VPet.Plugin.MeiChat
             }
             catch (Exception ex)
             {
-                _plugin.MW.Main.Say($"抱歉出错了: {ex.Message}");
+                _plugin.ResetAgentEngine();
+                _plugin.MW.Main.Say($"抱歉出错了，已恢复状态，可以继续提问。{ex.Message}");
             }
         }
 
