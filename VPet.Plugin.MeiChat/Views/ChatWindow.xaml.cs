@@ -15,7 +15,7 @@ namespace VPet.Plugin.MeiChat.Views
         private readonly Main _plugin;
         private readonly List<DeepSeekClient.ChatMessage> _messages = new();
         private bool _isProcessing;
-        private TextBlock? _streamingTextBlock;
+        private TextBox? _streamingTextBox;
 
         // 懒加载
         private const int BatchSize = 20;
@@ -153,7 +153,7 @@ namespace VPet.Plugin.MeiChat.Views
         {
             var panel = BuildMessagePanel(content, isUser);
             MessageList.Children.Add(panel);
-            if (!isUser) _streamingTextBlock = panel.Children[1] is Border b ? b.Child as TextBlock : null;
+            if (!isUser) _streamingTextBox = panel.Children[1] is Border b ? b.Child as TextBox : null;
             if (scrollToBottom) MessageArea.ScrollToBottom();
         }
 
@@ -169,12 +169,25 @@ namespace VPet.Plugin.MeiChat.Views
                 Margin = new Thickness(4, 0, 0, 2)
             });
 
-            var textBlock = new TextBlock
+            var textBox = new TextBox
             {
                 Text = content,
                 TextWrapping = TextWrapping.Wrap,
                 FontSize = 13,
-                Foreground = isUser ? Brushes.White : new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33))
+                Foreground = isUser ? Brushes.White : new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                IsReadOnly = true,
+                IsReadOnlyCaretVisible = false,
+                Padding = new Thickness(0),
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+
+            // 允许 Ctrl+C 复制
+            textBox.PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key == Key.C && Keyboard.Modifiers == ModifierKeys.Control)
+                    e.Handled = false; // 让默认复制行为生效
             };
 
             var bubble = new Border
@@ -187,7 +200,7 @@ namespace VPet.Plugin.MeiChat.Views
                 MaxWidth = 300,
                 HorizontalAlignment = isUser ? HorizontalAlignment.Right : HorizontalAlignment.Left
             };
-            bubble.Child = textBlock;
+            bubble.Child = textBox;
             panel.Children.Add(bubble);
 
             return panel;
@@ -233,22 +246,22 @@ namespace VPet.Plugin.MeiChat.Views
                         Dispatcher.Invoke(() =>
                         {
                             fullText.Append(chunk);
-                            if (_streamingTextBlock != null)
-                                _streamingTextBlock.Text = fullText.ToString();
+                            if (_streamingTextBox != null)
+                                _streamingTextBox.Text = fullText.ToString();
                             MessageArea.ScrollToBottom();
                         });
                     },
                     onFinish: _ =>
                     {
-                        Dispatcher.Invoke(() => _streamingTextBlock = null);
+                        Dispatcher.Invoke(() => _streamingTextBox = null);
                     },
                     onError: error =>
                     {
                         Dispatcher.Invoke(() =>
                         {
-                            if (_streamingTextBlock != null)
-                                _streamingTextBlock.Text += $"\n\n⚠️ {error}";
-                            _streamingTextBlock = null;
+                            if (_streamingTextBox != null)
+                                _streamingTextBox.Text += $"\n\n⚠️ {error}";
+                            _streamingTextBox = null;
                         });
                     },
                     systemPrompt: _plugin.Config.SystemPrompt

@@ -234,6 +234,7 @@ namespace VPet.Plugin.MeiChat
             ToolRegistry.Register(new SearchCodeTool());
             ToolRegistry.Register(new RunCommandTool());
             ToolRegistry.Register(new ReadWebTool());
+            ToolRegistry.Register(new SearchWebTool());
             MemoryTool.Manager = Memory;
             ToolRegistry.Register(new MemoryTool());
             ApiStatsTool.Stats = Stats;

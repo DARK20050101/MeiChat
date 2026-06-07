@@ -90,6 +90,46 @@ namespace VPet.Plugin.MeiChat
             System.Threading.Tasks.Task.Run(() => Responded(text));
         }
 
+        /// <summary>根据用户输入选择合适的思考提示词</summary>
+        private string PickThinkingPhrase(string userInput)
+        {
+            var input = userInput.ToLower();
+
+            if (input.Contains("搜") || input.Contains("查") || input.Contains("找") || input.Contains("搜索") || input.Contains("百度") || input.Contains("谷歌"))
+                return "我查一下相关资料...";
+
+            if (input.Contains("代码") || input.Contains("写") || input.Contains("改") || input.Contains("修复") || input.Contains("bug") || input.Contains("报错") || input.Contains("错误"))
+                return "让我看一下代码...";
+
+            if (input.Contains("读") || input.Contains("文件") || input.Contains("打开") || input.Contains("项目") || input.Contains("目录"))
+                return "让我看看文件...";
+
+            if (input.Contains("工作") || input.Contains("作息") || input.Contains("睡觉") || input.Contains("起床"))
+                return "好的~";
+
+            if (input.Contains("编译") || input.Contains("运行") || input.Contains("构建") || input.Contains("build") || input.Contains("执行"))
+                return "我来运行看看...";
+
+            if (input.Contains("解释") || input.Contains("什么") || input.Contains("怎么") || input.Contains("为什么") || input.Contains("如何"))
+                return "我想想...";
+
+            if (input.Contains("记忆") || input.Contains("记住") || input.Contains("忘了"))
+                return "让我回忆一下...";
+
+            if (input.Contains("网页") || input.Contains("网址") || input.Contains("http") || input.Contains("https") || input.Contains("com") || input.Contains("cn"))
+                return "我去看看这个网页...";
+
+            if (input.Contains("总结") || input.Contains("概括") || input.Contains("摘要"))
+                return "我来看一下重点...";
+
+            if (input.Contains("翻译") || input.Contains("英文") || input.Contains("中文"))
+                return "让我看看...";
+
+            // 随机选一个通用提示
+            string[] generic = { "让我看看...", "我想想...", "好的我来处理...", "让我先了解一下...", "嗯我来看看...", "好的请稍等..." };
+            return generic[Random.Shared.Next(generic.Length)];
+        }
+
         private T? GetField<T>(string name) where T : class
         {
             var f = typeof(TalkBox).GetField(name,
@@ -259,15 +299,19 @@ namespace VPet.Plugin.MeiChat
 
             engine.WorkingDirectory = _plugin.GetWorkingDirectory();
             _plugin.AddMessage(true, text);
-            _plugin.MW.Main.Say("让我看看...");
+
+            var thinking = PickThinkingPhrase(text);
+            _plugin.MW.Main.Say(thinking);
 
             try
             {
                 var result = engine.ExecuteAsync(text).GetAwaiter().GetResult();
-                _plugin.AddMessage(false, result);
 
                 if (!string.IsNullOrWhiteSpace(result))
                     _plugin.MW.Main.Say(result.TrimStart());
+                else
+                    _plugin.MW.Main.Say("嗯，处理完了，有什么需要补充的吗？");
+                _plugin.AddMessage(false, result ?? "");
             }
             catch (Exception ex)
             {
@@ -290,17 +334,18 @@ namespace VPet.Plugin.MeiChat
             engine.WorkingDirectory = _plugin.GetWorkingDirectory();
             _plugin.AddMessage(true, text);
 
-            _plugin.MW.Main.Say("让我看看...");
+            var thinking = PickThinkingPhrase(text);
+            _plugin.MW.Main.Say(thinking);
 
             try
             {
                 var result = engine.ExecuteAsync(text).GetAwaiter().GetResult();
-                _plugin.AddMessage(false, result);
 
                 if (!string.IsNullOrWhiteSpace(result))
-                {
                     _plugin.MW.Main.Say(result.TrimStart());
-                }
+                else
+                    _plugin.MW.Main.Say("嗯，处理完了。");
+                _plugin.AddMessage(false, result ?? "");
             }
             catch (Exception ex)
             {
