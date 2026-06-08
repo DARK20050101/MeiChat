@@ -355,6 +355,36 @@ namespace VPet.Plugin.MeiChat
 
         // ===== 思考模式（工具可用） =====
 
+        /// <summary>格式化工具调用为友好的显示文本</summary>
+        private string FormatToolCall(string name, string argsJson)
+        {
+            try
+            {
+                var args = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(argsJson);
+                return name switch
+                {
+                    "read_file" => $"📖 读取文件: {args?.GetValueOrDefault("path") ?? "?"}",
+                    "write_file" => $"✏️ 写入文件: {args?.GetValueOrDefault("path") ?? "?"}",
+                    "edit_file" => $"🔧 修改文件: {args?.GetValueOrDefault("path") ?? "?"}",
+                    "list_directory" => $"📂 查看目录: {args?.GetValueOrDefault("path") ?? "."}",
+                    "search_code" => $"🔍 搜索: {args?.GetValueOrDefault("query") ?? "?"}",
+                    "run_command" => $"⚡ {args?.GetValueOrDefault("command") ?? "执行命令"}",
+                    "read_webpage" => $"🌐 阅读: {args?.GetValueOrDefault("url") ?? "?"}",
+                    "search_web" => $"🔎 搜索: {args?.GetValueOrDefault("query") ?? "?"}",
+                    "remember" => $"🧠 记住: {args?.GetValueOrDefault("content") ?? "?"}",
+                    "control_pet" => $"🎮 {args?.GetValueOrDefault("action") ?? "操作桌宠"}",
+                    "get_stats" => $"📊 查看统计",
+                    "set_pet_name" => $"✏️ 改名: {args?.GetValueOrDefault("name") ?? "?"}",
+                    "show_chat_history" => $"💬 查看历史记录",
+                    _ => $"🔧 {name}"
+                };
+            }
+            catch
+            {
+                return $"🔧 {name}";
+            }
+        }
+
         private void HandleAgentMessage(string text)
         {
             var engine = EnsureEngineReady("agent");
@@ -363,6 +393,25 @@ namespace VPet.Plugin.MeiChat
             engine.WorkingDirectory = _plugin.GetWorkingDirectory();
             _plugin.AddMessage(true, text);
 
+            // 订阅思考过程事件
+            Action<string, string>? onTool = null;
+            Action<string>? onThink = null;
+
+            onTool = (name, args) =>
+            {
+                try { _plugin.MW.Dispatcher.BeginInvoke(() => _plugin.MW.Main.Say(FormatToolCall(name, args))); }
+                catch { }
+            };
+            onThink = (thought) =>
+            {
+                try { _plugin.MW.Dispatcher.BeginInvoke(() => _plugin.MW.Main.Say($"💭 {thought}")); }
+                catch { }
+            };
+
+            engine.OnToolExecution += onTool;
+            engine.OnThinking += onThink;
+
+            // 显示初始思考提示
             var thinking = PickThinkingPhrase(text);
             _plugin.MW.Main.Say(thinking);
 
@@ -381,6 +430,11 @@ namespace VPet.Plugin.MeiChat
                 _plugin.ResetAgentEngine();
                 _plugin.MW.Main.Say($"抱歉出错了，已恢复状态，可以继续提问。{ex.Message}");
             }
+            finally
+            {
+                engine.OnToolExecution -= onTool;
+                engine.OnThinking -= onThink;
+            }
         }
 
         // ===== 日常聊天（AI 自动判断是否用工具） =====
@@ -393,6 +447,25 @@ namespace VPet.Plugin.MeiChat
             engine.WorkingDirectory = _plugin.GetWorkingDirectory();
             _plugin.AddMessage(true, text);
 
+            // 订阅思考过程事件
+            Action<string, string>? onTool = null;
+            Action<string>? onThink = null;
+
+            onTool = (name, args) =>
+            {
+                try { _plugin.MW.Dispatcher.BeginInvoke(() => _plugin.MW.Main.Say(FormatToolCall(name, args))); }
+                catch { }
+            };
+            onThink = (thought) =>
+            {
+                try { _plugin.MW.Dispatcher.BeginInvoke(() => _plugin.MW.Main.Say($"💭 {thought}")); }
+                catch { }
+            };
+
+            engine.OnToolExecution += onTool;
+            engine.OnThinking += onThink;
+
+            // 显示初始思考提示
             var thinking = PickThinkingPhrase(text);
             _plugin.MW.Main.Say(thinking);
 
@@ -410,6 +483,11 @@ namespace VPet.Plugin.MeiChat
             {
                 _plugin.ResetAgentEngine();
                 _plugin.MW.Main.Say($"抱歉出错了，已恢复状态，可以继续提问。{ex.Message}");
+            }
+            finally
+            {
+                engine.OnToolExecution -= onTool;
+                engine.OnThinking -= onThink;
             }
         }
 
