@@ -20,9 +20,8 @@ namespace VPet.Plugin.MeiChat
         private TextBox? _inputBox;
         private Button? _sendBtn;
         private DateTime _lastBubbleUpdate = DateTime.MinValue;
-        private volatile int _requestId;
         private bool _isProcessing;
-        private CancellationTokenSource? _cts;
+        private readonly Queue<string> _messageQueue = new();
 
         // Agent 模式 3 小时提醒
         private DateTime _agentModeStartTime = DateTime.MinValue;
@@ -153,21 +152,21 @@ namespace VPet.Plugin.MeiChat
 
         public override void Responded(string text)
         {
-            var myId = Interlocked.Increment(ref _requestId);
             try
             {
                 if (string.IsNullOrWhiteSpace(text)) return;
 
-                // 如果有正在处理的任务，打断它，处理新的
+                // 如果正在处理中，加入队列稍后处理
                 if (_isProcessing)
                 {
-                    _cts?.Cancel();
-                    _cts = null;
-                    _plugin.MW.Main.Say("我还在想上次的，先处理你这次的吧~");
-                    System.Threading.Thread.Sleep(300);
+                    lock (_messageQueue)
+                    {
+                        _messageQueue.Enqueue(text);
+                    }
+                    _plugin.MW.Main.Say("我先处理完当前的，马上回答你~");
+                    return;
                 }
                 _isProcessing = true;
-                _cts = new CancellationTokenSource();
                 var cmd = text.Trim().ToLower();
 
                 // ===== 处理待定的模式选择 =====
@@ -277,7 +276,8 @@ namespace VPet.Plugin.MeiChat
             }
             finally
             {
-                if (myId == _requestId) _isProcessing = false;
+                _isProcessing = false;
+                ProcessQueue();
             }
         }
 
@@ -318,12 +318,47 @@ namespace VPet.Plugin.MeiChat
                     : "每次执行命令前都会询问你"));
         }
 
+        // ===== API 客户端与引擎初始化 =====
+
+        /// <summary>确保引擎已就绪，失败时显示具体错误信息并返回 null</summary>
+        private Agent.AgentEngine? EnsureEngineReady(string context)
+        {
+            // 尝试初始化引擎（内部会修复 ApiClient 为空的问题）
+            _plugin.InitializeAgentEngine();
+
+            var engine = _plugin.AgentEngine;
+            if (engine != null) return engine;
+
+            // 引擎初始化失败，根据 ApiStatus 给出具体信息
+            if (_plugin.Config == null || string.IsNullOrWhiteSpace(_plugin.Config.ApiKey))
+            {
+                _plugin.MW.Main.Say("⚠️ 请先在设置中配置 API Key（右键桌宠 → 设置 → MeiChat）");
+            }
+            else switch (_plugin.ApiStatus)
+            {
+                case ApiConnectionStatus.Failed:
+                    _plugin.MW.Main.Say("⚠️ API 连接测试失败，请检查 API Key 是否还有余额，或 API 地址是否正确");
+                    break;
+                case ApiConnectionStatus.Checking:
+                    _plugin.MW.Main.Say("⏳ 正在验证 API 连接，请稍后再试...");
+                    break;
+                case ApiConnectionStatus.Unknown:
+                    // 还没验证过，尝试异步验证并提示
+                    _plugin.MW.Main.Say("🔍 正在测试 API 连接，请稍等...");
+                    break;
+                default:
+                    _plugin.MW.Main.Say("⚠️ API 客户端初始化异常，请检查设置中的 API 配置");
+                    break;
+            }
+            return null;
+        }
+
         // ===== 思考模式（工具可用） =====
 
         private void HandleAgentMessage(string text)
         {
-            var engine = _plugin.AgentEngine;
-            if (engine == null) { _plugin.MW.Main.Say("⚠️ 请先配置 API Key"); return; }
+            var engine = EnsureEngineReady("agent");
+            if (engine == null) return;
 
             engine.WorkingDirectory = _plugin.GetWorkingDirectory();
             _plugin.AddMessage(true, text);
@@ -333,17 +368,13 @@ namespace VPet.Plugin.MeiChat
 
             try
             {
-                var result = engine.ExecuteAsync(text, _cts?.Token ?? CancellationToken.None).GetAwaiter().GetResult();
+                var result = engine.ExecuteAsync(text, CancellationToken.None).GetAwaiter().GetResult();
 
                 if (!string.IsNullOrWhiteSpace(result))
                     _plugin.MW.Main.Say(result.TrimStart());
                 else
                     _plugin.MW.Main.Say("嗯，处理完了，有什么需要补充的吗？");
                 _plugin.AddMessage(false, result ?? "");
-            }
-            catch (OperationCanceledException)
-            {
-                // 被用户打断，不处理
             }
             catch (Exception ex)
             {
@@ -352,17 +383,12 @@ namespace VPet.Plugin.MeiChat
             }
         }
 
-        // ===== 日常聊天 =====
+        // ===== 日常聊天（AI 自动判断是否用工具） =====
 
         private void HandleMessage(string text)
         {
-            _plugin.InitializeAgentEngine();
-            var engine = _plugin.AgentEngine;
-            if (engine == null)
-            {
-                _plugin.MW.Main.Say("⚠️ 请先在设置中配置 API Key");
-                return;
-            }
+            var engine = EnsureEngineReady("chat");
+            if (engine == null) return;
 
             engine.WorkingDirectory = _plugin.GetWorkingDirectory();
             _plugin.AddMessage(true, text);
@@ -372,7 +398,7 @@ namespace VPet.Plugin.MeiChat
 
             try
             {
-                var result = engine.ExecuteAsync(text, _cts?.Token ?? CancellationToken.None).GetAwaiter().GetResult();
+                var result = engine.ExecuteAsync(text, CancellationToken.None).GetAwaiter().GetResult();
 
                 if (!string.IsNullOrWhiteSpace(result))
                     _plugin.MW.Main.Say(result.TrimStart());
@@ -380,14 +406,28 @@ namespace VPet.Plugin.MeiChat
                     _plugin.MW.Main.Say("嗯，处理完了。");
                 _plugin.AddMessage(false, result ?? "");
             }
-            catch (OperationCanceledException)
-            {
-                // 被用户打断
-            }
             catch (Exception ex)
             {
                 _plugin.ResetAgentEngine();
                 _plugin.MW.Main.Say($"抱歉出错了，已恢复状态，可以继续提问。{ex.Message}");
+            }
+        }
+
+        // ===== 消息队列 =====
+
+        private void ProcessQueue()
+        {
+            string? next;
+            lock (_messageQueue)
+            {
+                if (_messageQueue.Count == 0) return;
+                next = _messageQueue.Dequeue();
+            }
+            if (next != null)
+            {
+                _plugin.MW.Main.Say("好的，继续回答你上一个问题~");
+                System.Threading.Thread.Sleep(300);
+                Responded(next);
             }
         }
 

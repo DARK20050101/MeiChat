@@ -13,6 +13,15 @@ using VPet.Plugin.MeiChat.Views;
 
 namespace VPet.Plugin.MeiChat
 {
+    /// <summary>API 连接状态</summary>
+    public enum ApiConnectionStatus
+    {
+        Unknown,   // 尚未验证
+        Checking,  // 正在验证
+        Connected, // 连接成功
+        Failed     // 连接失败
+    }
+
     public class Main : MainPlugin
     {
         public override string PluginName => "MeiChat";
@@ -48,6 +57,9 @@ namespace VPet.Plugin.MeiChat
                 Config.Save();
             }
         }
+        /// <summary>API 连接状态（启动时异步验证）</summary>
+        public ApiConnectionStatus ApiStatus { get; private set; } = ApiConnectionStatus.Unknown;
+
         /// <summary>是否自动执行命令</summary>
         public bool IsAutoMode
         {
@@ -83,6 +95,10 @@ namespace VPet.Plugin.MeiChat
 
                 InitializeApiClient();
 
+                // 异步验证 API 连接
+                if (ApiClient != null)
+                    _ = ValidateApiConnectionAsync();
+
                 // 注册 TalkBox
                 if (!_talkBoxRegistered)
                 {
@@ -97,6 +113,20 @@ namespace VPet.Plugin.MeiChat
         public override void GameLoaded()
         {
             base.GameLoaded();
+
+            // EndGame 销毁了 ApiClient，这里重新初始化
+            if (ApiClient == null && Config != null && !string.IsNullOrWhiteSpace(Config.ApiKey))
+            {
+                try
+                {
+                    InitializeApiClient();
+                    _ = ValidateApiConnectionAsync();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MeiChat] API客户端重初始化失败: {ex.Message}");
+                }
+            }
 
             // 启动作息调度和主动互动（游戏加载完成后）
             try { Scheduler?.Start(); } catch { }
@@ -361,19 +391,45 @@ namespace VPet.Plugin.MeiChat
                     Stats.RecordUsage(prompt, completion, cacheHit, cacheMiss);
 
                 ApiClient = client;
+                ApiStatus = ApiConnectionStatus.Unknown; // 新客户端需要重新验证
+            }
+        }
+
+        /// <summary>异步验证 API 连接，更新 ApiStatus</summary>
+        private async Task ValidateApiConnectionAsync()
+        {
+            if (ApiClient == null) return;
+            ApiStatus = ApiConnectionStatus.Checking;
+            try
+            {
+                var isValid = await ApiClient.ValidateApiKeyAsync();
+                ApiStatus = isValid ? ApiConnectionStatus.Connected : ApiConnectionStatus.Failed;
+                System.Diagnostics.Debug.WriteLine($"[MeiChat] API连接验证: {(isValid ? "成功" : "失败")}");
+            }
+            catch
+            {
+                ApiStatus = ApiConnectionStatus.Failed;
+                System.Diagnostics.Debug.WriteLine($"[MeiChat] API连接验证: 异常");
             }
         }
 
         // ===== Agent 引擎初始化 =====
 
         /// <summary>
-        /// 初始化 Agent 引擎（需要在 ApiClient 可用时调用）
+        /// 初始化 Agent 引擎
+        /// 如果 ApiClient 为空但配置中有 API Key，自动重试初始化
         /// </summary>
         public void InitializeAgentEngine()
         {
+            // 防御性：ApiClient 被 EndGame 销毁了但配置还在，重新创建
+            if (ApiClient == null && Config != null && !string.IsNullOrWhiteSpace(Config.ApiKey))
+            {
+                try { InitializeApiClient(); }
+                catch { /* 静默失败，留给上层处理 */ }
+            }
+
             if (ApiClient == null) return;
 
-            // 如果已有引擎但客户端变了，重新创建
             if (AgentEngine != null) return;
 
             ToolRegistry = new ToolRegistry();
