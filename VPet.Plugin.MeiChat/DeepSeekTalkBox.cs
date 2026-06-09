@@ -228,6 +228,11 @@ namespace VPet.Plugin.MeiChat
                     _plugin.MW.Dispatcher.Invoke(() => _plugin.OpenMemoryWindow());
                     return;
                 }
+                if (cmd == "/tts")
+                {
+                    ToggleTts();
+                    return;
+                }
                 if (cmd == "/clear")
                 {
                     _plugin.ClearHistory();
@@ -425,7 +430,11 @@ namespace VPet.Plugin.MeiChat
                 var result = engine.ExecuteAsync(text, CancellationToken.None).GetAwaiter().GetResult();
 
                 if (!string.IsNullOrWhiteSpace(result))
+                {
                     _plugin.MW.Main.Say(result.TrimStart());
+                    // 朗读回复
+                    _ = SpeakResponseAsync(result.TrimStart());
+                }
                 else
                     _plugin.MW.Main.Say("嗯，处理完了，有什么需要补充的吗？");
                 _plugin.AddMessage(false, result ?? "");
@@ -479,7 +488,11 @@ namespace VPet.Plugin.MeiChat
                 var result = engine.ExecuteAsync(text, CancellationToken.None).GetAwaiter().GetResult();
 
                 if (!string.IsNullOrWhiteSpace(result))
+                {
                     _plugin.MW.Main.Say(result.TrimStart());
+                    // 朗读回复
+                    _ = SpeakResponseAsync(result.TrimStart());
+                }
                 else
                     _plugin.MW.Main.Say("嗯，处理完了。");
                 _plugin.AddMessage(false, result ?? "");
@@ -496,7 +509,70 @@ namespace VPet.Plugin.MeiChat
             }
         }
 
-        // ===== 消息队列 =====
+        // ===== 语音朗读 =====
+
+        private void ToggleTts()
+        {
+            if (_plugin.Tts == null) return;
+            _plugin.Tts.Enabled = !_plugin.Tts.Enabled;
+            _plugin.Config.TtsEnabled = _plugin.Tts.Enabled;
+            _plugin.Config.Save();
+            var status = _plugin.Tts.Enabled ? "已开启 🔊" : "已关闭 🔇";
+            _plugin.MW.Main.Say($"语音朗读{status}\n当前使用: {(_plugin.Tts.Provider == TTS.TtsProvider.TongyiQianwen ? "通义千问" : "Windows语音")}");
+        }
+
+        /// <summary>按句朗读回复文本（后台任务，不阻塞主流程）</summary>
+        private async Task SpeakResponseAsync(string text)
+        {
+            var tts = _plugin.Tts;
+            if (tts == null || !tts.Enabled) return;
+
+            try
+            {
+                // 先停掉之前的朗读
+                tts.Stop();
+
+                // 移除思考过程相关前缀再朗读
+                var cleanText = StripThinkingPrefix(text);
+                if (!string.IsNullOrWhiteSpace(cleanText))
+                    await tts.SpeakSentencesAsync(cleanText);
+            }
+            catch { /* TTS 失败不影响主流程 */ }
+        }
+
+        /// <summary>移除回复文本中的思考过程前缀（💭、📖等），只保留纯文本用于朗读</summary>
+        private static string StripThinkingPrefix(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return text;
+
+            // 移除表情符号开头的行（思考过程展示用）
+            var lines = text.Split('\n');
+            var clean = new System.Collections.Generic.List<string>();
+            foreach (var line in lines)
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Length > 0 && IsEmojiPrefix(trimmed))
+                    continue; // 跳过思考过程行
+                clean.Add(line);
+            }
+            return string.Join('\n', clean).Trim();
+        }
+
+        private static readonly HashSet<string> EmojiPrefixes = new()
+        {
+            "💭", "📖", "📂", "🔧", "✏️", "⚡", "🌐", "🔎", "🧠", "🎮", "💬", "📊", "🔍", "🩶",
+            "💙", "💚", "💜", "🧡", "❤️", "☑️", "🗑️", "📤", "🔄", "🧹"
+        };
+
+        private static bool IsEmojiPrefix(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            foreach (var prefix in EmojiPrefixes)
+            {
+                if (text.StartsWith(prefix)) return true;
+            }
+            return false;
+        }
 
         private void ProcessQueue()
         {
@@ -523,6 +599,7 @@ namespace VPet.Plugin.MeiChat
                        "/chat - 退出思考模式\n" +
                        "/ui 或 /long - 打开长聊天框\n" +
                        "/memory - 管理芽衣的记忆\n" +
+                       "/tts - 切换语音朗读\n" +
                        "/auto - 切换自动执行模式\n" +
                        "/clear - 清空历史\n" +
                        "/quiet - 安静 3 小时\n" +

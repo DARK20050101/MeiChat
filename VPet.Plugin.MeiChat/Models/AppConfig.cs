@@ -64,6 +64,28 @@ namespace VPet.Plugin.MeiChat.Models
         /// <summary>当前使用的角色包名称 ("default" = VPet原皮, "mei" = 芽衣)</summary>
         public string PetSkin { get; set; } = "default";
 
+        // ===== TTS 语音配置 =====
+        /// <summary>是否启用语音朗读</summary>
+        public bool TtsEnabled { get; set; } = false;
+
+        /// <summary>TTS 提供者: "Windows" 或 "Tongyi"</summary>
+        public string TtsProvider { get; set; } = "Windows";
+
+        /// <summary>语音名称（Windows TTS）</summary>
+        public string TtsVoiceName { get; set; } = "";
+
+        /// <summary>通义千问 API Key</summary>
+        public string TongyiApiKey { get; set; } = "";
+
+        /// <summary>通义千问语音模型</summary>
+        public string TongyiVoice { get; set; } = "sambert-zhichu-v1";
+
+        /// <summary>朗读语速 (-10 ~ 10)</summary>
+        public double TtsRate { get; set; } = 0;
+
+        /// <summary>朗读音量 (0.0 ~ 1.0)</summary>
+        public double TtsVolume { get; set; } = 1.0;
+
         // ===== 方法 =====
 
         /// <summary>

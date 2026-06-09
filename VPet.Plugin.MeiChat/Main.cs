@@ -9,6 +9,7 @@ using VPet.Plugin.MeiChat.Agent.Tools;
 using VPet.Plugin.MeiChat.Memory;
 using VPet.Plugin.MeiChat.Models;
 using VPet.Plugin.MeiChat.Schedule;
+using VPet.Plugin.MeiChat.TTS;
 using VPet.Plugin.MeiChat.Views;
 
 namespace VPet.Plugin.MeiChat
@@ -45,6 +46,8 @@ namespace VPet.Plugin.MeiChat
         public ScheduleManager? Scheduler { get; private set; }
         /// <summary>主动互动</summary>
         public ProactiveInteraction? Proactive { get; private set; }
+        /// <summary>语音朗读服务</summary>
+        public TtsService? Tts { get; private set; }
         /// <summary>API 用量统计</summary>
         public ApiStats Stats { get; private set; } = new();
         /// <summary>是否处于 Agent 模式</summary>
@@ -89,6 +92,18 @@ namespace VPet.Plugin.MeiChat
                 Scheduler = new ScheduleManager(this, Memory);
                 Proactive = new ProactiveInteraction(this, Memory);
                 Stats = new ApiStats();
+
+                // 初始化 TTS 语音
+                Tts = new TtsService
+                {
+                    Enabled = Config.TtsEnabled,
+                    Provider = Config.TtsProvider == "Tongyi" ? TtsProvider.TongyiQianwen : TtsProvider.WindowsBuiltIn,
+                    VoiceName = Config.TtsVoiceName,
+                    TongyiApiKey = Config.TongyiApiKey,
+                    TongyiVoice = Config.TongyiVoice,
+                    Volume = Config.TtsVolume,
+                    Rate = Config.TtsRate
+                };
 
                 // 加载历史聊天记录
                 LoadHistory();
@@ -345,6 +360,7 @@ namespace VPet.Plugin.MeiChat
             Scheduler?.Stop();
             Scheduler?.Dispose();
             Memory?.Save();
+            Tts?.Stop();
             ApiClient?.Dispose();
             ApiClient = null;
         }
