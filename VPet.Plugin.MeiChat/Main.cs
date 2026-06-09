@@ -93,17 +93,24 @@ namespace VPet.Plugin.MeiChat
                 Proactive = new ProactiveInteraction(this, Memory);
                 Stats = new ApiStats();
 
-                // 初始化 TTS 语音
-                Tts = new TtsService
+                // 初始化 TTS 语音（容错：语音库不可用不影响插件加载）
+                try
                 {
-                    Enabled = Config.TtsEnabled,
-                    Provider = Config.TtsProvider == "Tongyi" ? TtsProvider.TongyiQianwen : TtsProvider.WindowsBuiltIn,
-                    VoiceName = Config.TtsVoiceName,
-                    TongyiApiKey = Config.TongyiApiKey,
-                    TongyiVoice = Config.TongyiVoice,
-                    Volume = Config.TtsVolume,
-                    Rate = Config.TtsRate
-                };
+                    Tts = new TtsService
+                    {
+                        Enabled = Config.TtsEnabled,
+                        Provider = Config.TtsProvider == "Tongyi" ? TtsProvider.TongyiQianwen : TtsProvider.WindowsBuiltIn,
+                        VoiceName = Config.TtsVoiceName,
+                        TongyiApiKey = Config.TongyiApiKey,
+                        TongyiVoice = Config.TongyiVoice,
+                        Volume = Config.TtsVolume,
+                        Rate = Config.TtsRate
+                    };
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MeiChat] TTS初始化失败（不影响插件运行）: {ex.Message}");
+                }
 
                 // 加载历史聊天记录
                 LoadHistory();

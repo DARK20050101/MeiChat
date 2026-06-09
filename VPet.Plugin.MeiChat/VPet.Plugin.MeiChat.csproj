@@ -15,7 +15,6 @@
   <!-- NuGet 方式引用 VPet 接口（比本地 DLL 更稳定） -->
   <ItemGroup>
     <PackageReference Include="VPet-Simulator.Windows.Interface" Version="1.1.0.66" />
-    <PackageReference Include="System.Speech" Version="8.0.0" />
   </ItemGroup>
 
 </Project>

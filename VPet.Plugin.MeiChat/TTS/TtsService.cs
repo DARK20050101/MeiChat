@@ -1,7 +1,7 @@
+using System.Diagnostics;
 using System.IO;
-using System.Media;
 using System.Net.Http;
-using System.Speech.Synthesis;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -11,20 +11,21 @@ namespace VPet.Plugin.MeiChat.TTS
     /// <summary>TTS 提供者</summary>
     public enum TtsProvider
     {
-        /// <summary>Windows 内置语音（含 Edge 神经语音）</summary>
+        /// <summary>Windows 内置语音（SAPI / Edge 神经语音）</summary>
         WindowsBuiltIn,
         /// <summary>阿里云通义千问语音合成</summary>
         TongyiQianwen
     }
 
     /// <summary>
-    /// 语音朗读服务 — 支持 Windows 内置 TTS 和通义千问 TTS
+    /// 语音朗读服务 — 通过 Windows SAPI COM 实现，无需额外 DLL
     /// </summary>
     public class TtsService : IDisposable
     {
-        private SpeechSynthesizer? _synth;
+        private dynamic? _synth; // 延迟绑定的 SAPI.SpVoice
         private readonly HttpClient _http = new();
         private bool _disposed;
+        private bool _sapiAvailable;
 
         public TtsProvider Provider { get; set; } = TtsProvider.WindowsBuiltIn;
         public string VoiceName { get; set; } = "";
@@ -34,13 +35,24 @@ namespace VPet.Plugin.MeiChat.TTS
 
         // 通义千问配置
         public string TongyiApiKey { get; set; } = "";
-        /// <summary>通义千问语音模型，如 "sambert-zhichu-v1"</summary>
         public string TongyiVoice { get; set; } = "sambert-zhichu-v1";
 
         public TtsService()
         {
-            try { _synth = new SpeechSynthesizer(); }
-            catch { }
+            try
+            {
+                // 通过 COM 创建 SAPI SpVoice（Windows 内置，无需额外 DLL）
+                var speechType = Type.GetTypeFromProgID("SAPI.SpVoice");
+                if (speechType != null)
+                {
+                    _synth = Activator.CreateInstance(speechType);
+                    _sapiAvailable = true;
+                }
+            }
+            catch
+            {
+                _sapiAvailable = false;
+            }
         }
 
         /// <summary>异步朗读文本，不等待完成</summary>
@@ -59,7 +71,7 @@ namespace VPet.Plugin.MeiChat.TTS
             if (!Enabled || string.IsNullOrWhiteSpace(text)) return;
             if (Provider == TtsProvider.WindowsBuiltIn)
             {
-                await SpeakWindowsAsync(text, ct);
+                await Task.Run(() => SpeakWindows(text), ct);
             }
             else if (Provider == TtsProvider.TongyiQianwen)
             {
@@ -77,7 +89,6 @@ namespace VPet.Plugin.MeiChat.TTS
             {
                 if (ct.IsCancellationRequested) break;
                 if (string.IsNullOrWhiteSpace(sentence)) continue;
-
                 await SpeakAndWaitAsync(sentence.Trim(), ct);
             }
         }
@@ -85,60 +96,44 @@ namespace VPet.Plugin.MeiChat.TTS
         /// <summary>停止朗读</summary>
         public void Stop()
         {
-            try { _synth?.SpeakAsyncCancelAll(); } catch { }
+            try { _synth?.SpeakAsyncCancelAll?.Invoke(); } catch { }
         }
 
-        // ===== Windows 内置语音 =====
+        // ===== Windows SAPI 语音 =====
 
         private void SpeakWindows(string text)
         {
-            if (_synth == null) return;
+            if (_synth == null || !_sapiAvailable) return;
             try
             {
-                ApplyVoiceSettings();
-                _synth.SpeakAsync(text);
-            }
-            catch { }
-        }
-
-        private async Task SpeakWindowsAsync(string text, CancellationToken ct)
-        {
-            if (_synth == null) return;
-            try
-            {
-                var tcs = new TaskCompletionSource<bool>();
-                using var reg = ct.Register(() =>
-                {
-                    try { _synth.SpeakAsyncCancelAll(); } catch { }
-                    tcs.TrySetCanceled();
-                });
-
-                ApplyVoiceSettings();
-
-                EventHandler<SpeakCompletedEventArgs>? handler = null;
-                handler = (s, e) =>
-                {
-                    _synth.SpeakCompleted -= handler;
-                    tcs.TrySetResult(true);
-                };
-                _synth.SpeakCompleted += handler;
-                _synth.SpeakAsync(text);
-
-                await tcs.Task;
-            }
-            catch (OperationCanceledException) { Stop(); }
-            catch { }
-        }
-
-        private void ApplyVoiceSettings()
-        {
-            if (_synth == null) return;
-            try
-            {
+                // 设置音量 (0-100)
                 _synth.Volume = (int)(Volume * 100);
+                // 设置语速 (-10 到 10)
                 _synth.Rate = (int)Rate;
+
+                // 选择语音
                 if (!string.IsNullOrWhiteSpace(VoiceName))
-                    _synth.SelectVoice(VoiceName);
+                {
+                    try { _synth.Voice = _synth.GetVoices().Item(VoiceName); }
+                    catch { }
+                }
+
+                // 异步朗读
+                _synth.Speak(text, 1); // 1 = SVSFlagsAsync
+            }
+            catch { }
+        }
+
+        /// <summary>等待朗读完成</summary>
+        private void WaitForSpeech()
+        {
+            if (_synth == null) return;
+            try
+            {
+                while (_synth.Status.RunningState == 1) // 1 = SPRS_IS_SPEAKING
+                {
+                    Thread.Sleep(100);
+                }
             }
             catch { }
         }
@@ -177,11 +172,10 @@ namespace VPet.Plugin.MeiChat.TTS
                 var audioBytes = await response.Content.ReadAsByteArrayAsync();
                 if (audioBytes.Length > 0)
                 {
-                    // 用 Windows Media Player 或 SoundPlayer 播放
                     PlayWavData(audioBytes);
                 }
             }
-            catch { /* TTS 失败静默处理 */ }
+            catch { }
         }
 
         private static void PlayWavData(byte[] wavData)
@@ -189,8 +183,16 @@ namespace VPet.Plugin.MeiChat.TTS
             try
             {
                 using var ms = new MemoryStream(wavData);
-                using var player = new System.Media.SoundPlayer(ms);
-                player.PlaySync();
+                // 不依赖 System.Media，用 Windows API 播放
+                var tempFile = Path.GetTempFileName() + ".wav";
+                File.WriteAllBytes(tempFile, wavData);
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = tempFile,
+                    UseShellExecute = true,
+                    Verb = "open"
+                })?.WaitForExit();
+                try { File.Delete(tempFile); } catch { }
             }
             catch { }
         }
@@ -203,7 +205,6 @@ namespace VPet.Plugin.MeiChat.TTS
             if (string.IsNullOrWhiteSpace(text)) return new();
 
             var result = new List<string>();
-            // 按句号、问号、感叹号、换行符分割（保留分隔符在前一句末尾）
             var parts = Regex.Split(text, @"(?<=[。！？\n.!?])");
 
             var buffer = new StringBuilder();
@@ -212,7 +213,6 @@ namespace VPet.Plugin.MeiChat.TTS
                 var trimmed = part.Trim();
                 if (string.IsNullOrEmpty(trimmed)) continue;
 
-                // 如果句子太短，合并到下一句
                 if (buffer.Length > 0 && trimmed.Length < 3 && !trimmed.Contains('。'))
                 {
                     buffer.Append(trimmed);
@@ -227,7 +227,6 @@ namespace VPet.Plugin.MeiChat.TTS
                 }
                 else
                 {
-                    // 单句太长（超过200字）再切
                     if (trimmed.Length > 200)
                     {
                         var subParts = Regex.Split(trimmed, @"(?<=[，,；;])");
@@ -250,31 +249,37 @@ namespace VPet.Plugin.MeiChat.TTS
             return result.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
         }
 
-        /// <summary>获取已安装的 Windows 语音列表</summary>
+        /// <summary>获取已安装的语音列表</summary>
         public List<string> GetInstalledVoices()
         {
             var voices = new List<string>();
+            if (_synth == null || !_sapiAvailable) return voices;
             try
             {
-                if (_synth != null)
+                var allVoices = _synth.GetVoices();
+                foreach (var v in allVoices)
                 {
-                    foreach (var v in _synth.GetInstalledVoices())
+                    try
                     {
-                        if (v.Enabled && v.VoiceInfo != null)
-                            voices.Add(v.VoiceInfo.Name);
+                        var name = v.GetAttribute("Name") ?? v.Id;
+                        if (!string.IsNullOrEmpty(name))
+                            voices.Add(name);
                     }
+                    catch { }
                 }
             }
             catch { }
             return voices;
         }
 
+        /// <summary>SAPI 是否可用</summary>
+        public bool IsAvailable => _sapiAvailable;
+
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
             Stop();
-            _synth?.Dispose();
             _http.Dispose();
         }
     }
