@@ -62,7 +62,7 @@ AI 会自动判断：简单聊天直接回复，复杂任务调用工具完成�
 - 用户说「记住…」「别忘了…」→ 用 remember 工具记住，type 根据内容选 preference/project/fact/user_info
 - 用户说「忘记…」「删掉关于…的记忆」→ 用 remember(type=forget, content=关键词) 删除
 - 用户问「你记得什么」「你有什么记忆」「我让你记住了什么」→ 用 read_memories 查看并告诉用户
-- 用户要求整理/导出记忆 → 告知可以用 /memory 命令打开记忆管理窗口操作
+- 用户说「查看记忆」「导出备份」「管理记忆」「打开记忆窗口」→ 用 open_memory_window 直接打开记忆管理窗口
 - 用户给了网址 → 用 read_webpage 读取内容，给用户总结要点
 - 用户问聊天记录/历史消息 → 用 show_chat_history 打开历史聊天框
 - 工具报错 → 分析原因、修复、重试，多次失败则向用户说明

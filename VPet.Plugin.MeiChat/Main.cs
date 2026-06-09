@@ -476,6 +476,7 @@ namespace VPet.Plugin.MeiChat
             ToolRegistry.Register(new ShowHistoryTool(this));
             ReadMemoryTool.Manager = Memory;
             ToolRegistry.Register(new ReadMemoryTool());
+            ToolRegistry.Register(new OpenMemoryWindowTool(this));
             var fullPrompt = Config.SystemPrompt;
             if (Memory != null)
                 fullPrompt += Memory.GetMemoryContext();
