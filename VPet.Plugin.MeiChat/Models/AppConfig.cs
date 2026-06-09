@@ -86,6 +86,21 @@ namespace VPet.Plugin.MeiChat.Models
         /// <summary>朗读音量 (0.0 ~ 1.0)</summary>
         public double TtsVolume { get; set; } = 1.0;
 
+        /// <summary>自定义TTS HTTP端点</summary>
+        public string CustomTtsEndpoint { get; set; } = "http://127.0.0.1:5000/tts";
+
+        /// <summary>自定义TTS请求模板（{text}会被替换）</summary>
+        public string CustomTtsTemplate { get; set; } = @"{""text"": ""{text}""}";
+
+        /// <summary>自定义TTS名称</summary>
+        public string CustomTtsName { get; set; } = "自定义TTS";
+
+        /// <summary>响应是否为原始音频流</summary>
+        public bool CustomTtsRawAudio { get; set; } = true;
+
+        /// <summary>JSON响应中的音频字段路径</summary>
+        public string CustomTtsAudioField { get; set; } = "";
+
         // ===== 方法 =====
 
         /// <summary>

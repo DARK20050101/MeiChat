@@ -12,7 +12,8 @@ namespace VPet.Plugin.MeiChat.TTS
     {
         WindowsSAPI,
         EdgeTTS,
-        TongyiQianwen
+        TongyiQianwen,
+        CustomHTTP
     }
 
     /// <summary>
@@ -190,6 +191,7 @@ namespace VPet.Plugin.MeiChat.TTS
         private readonly WindowsSapiProvider _sapi = new();
         private readonly EdgeTtsProvider _edge = new();
         private readonly TongyiTtsProvider _tongyi = new();
+        private readonly CustomHttpProvider _custom = new();
         private ITtsProvider? _active;
         private bool _disposed;
 
@@ -205,6 +207,13 @@ namespace VPet.Plugin.MeiChat.TTS
         // 通义千问配置
         public string TongyiApiKey { get; set; } = "";
         public string TongyiVoiceModel { get; set; } = "sambert-zhichu-v1";
+
+        // 自定义 HTTP 配置
+        public string CustomEndpoint { get; set; } = "http://127.0.0.1:5000/tts";
+        public string CustomTemplate { get; set; } = @"{""text"": ""{text}""}";
+        public string CustomName { get; set; } = "自定义TTS";
+        public bool CustomRawAudio { get; set; } = true;
+        public string CustomAudioField { get; set; } = "";
 
         // 通用配置
         public double Volume { get; set; } = 1.0;
@@ -238,10 +247,16 @@ namespace VPet.Plugin.MeiChat.TTS
             _tongyi.ApiKey = TongyiApiKey;
             _tongyi.VoiceModel = TongyiVoiceModel;
             _tongyi.Volume = Volume;
+            _custom.Endpoint = CustomEndpoint;
+            _custom.RequestTemplate = CustomTemplate;
+            _custom.ResponseIsRawAudio = CustomRawAudio;
+            _custom.AudioField = CustomAudioField;
+            _custom.Name = CustomName;
             _active = Provider switch
             {
                 TtsProviderType.EdgeTTS => _edge,
                 TtsProviderType.TongyiQianwen => _tongyi,
+                TtsProviderType.CustomHTTP => _custom,
                 _ => _sapi
             };
         }

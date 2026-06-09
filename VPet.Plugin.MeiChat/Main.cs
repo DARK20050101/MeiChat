@@ -546,8 +546,14 @@ namespace VPet.Plugin.MeiChat
             {
                 "Edge" => TTS.TtsProviderType.EdgeTTS,
                 "Tongyi" => TTS.TtsProviderType.TongyiQianwen,
+                "CustomHTTP" => TTS.TtsProviderType.CustomHTTP,
                 _ => TTS.TtsProviderType.WindowsSAPI
             };
+            Tts.CustomEndpoint = Config.CustomTtsEndpoint;
+            Tts.CustomTemplate = Config.CustomTtsTemplate;
+            Tts.CustomName = Config.CustomTtsName;
+            Tts.CustomRawAudio = Config.CustomTtsRawAudio;
+            Tts.CustomAudioField = Config.CustomTtsAudioField;
             Tts.TongyiApiKey = Config.TongyiApiKey;
             Tts.TongyiVoiceModel = Config.TongyiVoice;
             Tts.Volume = Config.TtsVolume;

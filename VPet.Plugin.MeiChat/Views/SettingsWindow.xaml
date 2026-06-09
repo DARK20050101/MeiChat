@@ -150,11 +150,23 @@
                         <ComboBoxItem Tag="Edge">Edge TTS（晓晓等在线语音）🌐</ComboBoxItem>
                         <ComboBoxItem Tag="Windows">Windows 内置语音（SAPI）</ComboBoxItem>
                         <ComboBoxItem Tag="Tongyi">通义千问语音</ComboBoxItem>
+                        <ComboBoxItem Tag="CustomHTTP">自定义 HTTP（第三方模型）🔌</ComboBoxItem>
                     </ComboBox>
 
                     <TextBlock x:Name="VoiceLabel" Text="选择语音" FontSize="13" Foreground="#666" Margin="0,10,0,4"/>
-                    <ComboBox x:Name="VoiceSelectBox" Height="34" FontSize="13"
-                              BorderBrush="#DDD"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <ComboBox x:Name="VoiceSelectBox" Grid.Column="0" Height="34" FontSize="13"
+                                  BorderBrush="#DDD"/>
+                        <Button Grid.Column="1" x:Name="BtnPreview" Content="▶ 试听" Width="70"
+                                Height="34" FontSize="12" Margin="8,0,0,0"
+                                Background="#E8F5E9" Foreground="#2E7D32"
+                                BorderThickness="1" BorderBrush="#A5D6A7"
+                                Cursor="Hand" Click="BtnPreview_Click"/>
+                    </Grid>
 
                     <TextBlock Text="语速" FontSize="13" Foreground="#666" Margin="0,10,0,4"/>
                     <Grid>
@@ -179,6 +191,25 @@
                         <TextBlock Text="语音模型（如 sambert-zhichu-v1）" FontSize="13" Foreground="#666" Margin="0,8,0,4"/>
                         <TextBox x:Name="TongyiVoiceBox" Height="34" FontSize="13"
                                  BorderBrush="#DDD" Padding="8,0"/>
+                    </StackPanel>
+
+                    <!-- 自定义 HTTP 配置（默认隐藏） -->
+                    <StackPanel x:Name="CustomHttpPanel" Visibility="Collapsed" Margin="0,10,0,0">
+                        <TextBlock Text="提供者名称" FontSize="13" Foreground="#666" Margin="0,0,0,4"/>
+                        <TextBox x:Name="CustomNameBox" Height="34" FontSize="13"
+                                 BorderBrush="#DDD" Padding="8,0"/>
+                        <TextBlock Text="HTTP 端点 URL" FontSize="13" Foreground="#666" Margin="0,8,0,4"/>
+                        <TextBox x:Name="CustomUrlBox" Height="34" FontSize="13"
+                                 BorderBrush="#DDD" Padding="8,0"/>
+                        <TextBlock Text="请求模板（{text} 为文本占位符）" FontSize="13" Foreground="#666" Margin="0,8,0,4"/>
+                        <TextBox x:Name="CustomTemplateBox" Height="34" FontSize="13"
+                                 BorderBrush="#DDD" Padding="8,0"/>
+                        <CheckBox x:Name="CustomRawAudioBox" Content="响应为纯音频流" FontSize="13"
+                                  Foreground="#666" Margin="0,8,0,0" IsChecked="True"/>
+                        <TextBox x:Name="CustomAudioFieldBox" Height="34" FontSize="13"
+                                 BorderBrush="#DDD" Padding="8,0" Margin="0,4,0,0"
+                                 Text="data.audio"/>
+                        <TextBlock Text="JSON中音频字段路径（纯音频流模式不填）" FontSize="11" Foreground="#999"/>
                     </StackPanel>
                 </StackPanel>
             </Border>

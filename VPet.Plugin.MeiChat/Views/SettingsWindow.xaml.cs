@@ -118,9 +118,22 @@ namespace VPet.Plugin.MeiChat.Views
             }
             TongyiVoiceBox.Text = _config.TongyiVoice;
 
-            // 根据提供者显示/隐藏通义面板
+            // 自定义 HTTP 配置
+            CustomNameBox.Text = _config.CustomTtsName;
+            CustomUrlBox.Text = _config.CustomTtsEndpoint;
+            CustomTemplateBox.Text = _config.CustomTtsTemplate;
+            CustomRawAudioBox.IsChecked = _config.CustomTtsRawAudio;
+            CustomAudioFieldBox.Text = _config.CustomTtsAudioField;
+
+            // 根据提供者显示/隐藏对应面板
             TongyiPanel.Visibility = _config.TtsProvider == "Tongyi" ? Visibility.Visible : Visibility.Collapsed;
-            VoiceLabel.Text = _config.TtsProvider == "Tongyi" ? "语音模型" : "选择语音";
+            CustomHttpPanel.Visibility = _config.TtsProvider == "CustomHTTP" ? Visibility.Visible : Visibility.Collapsed;
+            VoiceLabel.Text = _config.TtsProvider switch
+            {
+                "Tongyi" => "语音模型",
+                "CustomHTTP" => "可用语音",
+                _ => "选择语音"
+            };
         }
 
         private void TtsEnabled_Changed(object sender, RoutedEventArgs e)
@@ -133,12 +146,13 @@ namespace VPet.Plugin.MeiChat.Views
             if (TtsProviderBox.SelectedItem is ComboBoxItem item)
             {
                 var prov = item.Tag?.ToString() ?? "Windows";
-                var isTongyi = prov == "Tongyi";
-                TongyiPanel.Visibility = isTongyi ? Visibility.Visible : Visibility.Collapsed;
+                TongyiPanel.Visibility = prov == "Tongyi" ? Visibility.Visible : Visibility.Collapsed;
+                CustomHttpPanel.Visibility = prov == "CustomHTTP" ? Visibility.Visible : Visibility.Collapsed;
                 VoiceLabel.Text = prov switch
                 {
                     "Edge" => "Edge 语音（在线）",
                     "Tongyi" => "语音模型",
+                    "CustomHTTP" => "可用语音",
                     _ => "选择语音"
                 };
                 RefreshVoiceList();
@@ -174,6 +188,11 @@ namespace VPet.Plugin.MeiChat.Views
                     VoiceSelectBox.Items.Add("sambert-zhichu-v1（标准）");
                     VoiceSelectBox.Items.Add("sambert-zhimao-v1（萌妹）");
                     VoiceSelectBox.Items.Add("sambert-zhiwei-v1（御姐）");
+                    VoiceSelectBox.SelectedIndex = 0;
+                    break;
+
+                case "CustomHTTP":
+                    VoiceSelectBox.Items.Add("default");
                     VoiceSelectBox.SelectedIndex = 0;
                     break;
 
@@ -264,6 +283,14 @@ namespace VPet.Plugin.MeiChat.Views
                 if (string.IsNullOrWhiteSpace(_config.TongyiVoice))
                     _config.TongyiVoice = "sambert-zhichu-v1";
             }
+            else if (_config.TtsProvider == "CustomHTTP")
+            {
+                _config.CustomTtsName = CustomNameBox.Text.Trim();
+                _config.CustomTtsEndpoint = CustomUrlBox.Text.Trim();
+                _config.CustomTtsTemplate = CustomTemplateBox.Text.Trim();
+                _config.CustomTtsRawAudio = CustomRawAudioBox.IsChecked == true;
+                _config.CustomTtsAudioField = CustomAudioFieldBox.Text.Trim();
+            }
 
             _onSaved?.Invoke(_config);
             DialogResult = true;
@@ -328,6 +355,58 @@ namespace VPet.Plugin.MeiChat.Views
             {
                 TestStatus.Text = $"❌ 连接失败: {ex.Message}";
                 TestStatus.Foreground = System.Windows.Media.Brushes.Red;
+            }
+        }
+
+        // ===== TTS 试听 =====
+
+        private async void BtnPreview_Click(object sender, RoutedEventArgs e)
+        {
+            BtnPreview.IsEnabled = false;
+            BtnPreview.Content = "🔊 播放中...";
+
+            try
+            {
+                var prov = TtsProviderBox.SelectedItem is ComboBoxItem pi ? pi.Tag?.ToString() : "Edge";
+                var rawVoice = VoiceSelectBox.SelectedItem?.ToString() ?? "";
+                var voiceName = rawVoice.Split(' ')[0];
+
+                ITtsProvider? provider = prov switch
+                {
+                    "Edge" => new EdgeTtsProvider { VoiceName = voiceName },
+                    "Tongyi" => new TongyiTtsProvider
+                    {
+                        ApiKey = TongyiKeyBox.Password.Trim(),
+                        VoiceModel = TongyiVoiceBox.Text.Trim()
+                    },
+                    "CustomHTTP" => new CustomHttpProvider
+                    {
+                        Endpoint = CustomUrlBox.Text.Trim(),
+                        RequestTemplate = CustomTemplateBox.Text.Trim(),
+                        ResponseIsRawAudio = CustomRawAudioBox.IsChecked == true,
+                        AudioField = CustomAudioFieldBox.Text.Trim(),
+                        Name = CustomNameBox.Text.Trim()
+                    },
+                    _ => null
+                };
+
+                if (provider == null && prov == "Windows")
+                {
+                    var sapi = new WindowsSapiProvider();
+                    if (!string.IsNullOrWhiteSpace(voiceName))
+                        sapi.VoiceName = voiceName;
+                    await sapi.SpeakAsync("你好，我是芽衣，这是当前语音的试听效果。", CancellationToken.None);
+                }
+                else if (provider != null)
+                {
+                    await provider.SpeakAsync("你好，我是芽衣，这是当前语音的试听效果。", CancellationToken.None);
+                }
+            }
+            catch { }
+            finally
+            {
+                BtnPreview.IsEnabled = true;
+                BtnPreview.Content = "▶ 试听";
             }
         }
     }
