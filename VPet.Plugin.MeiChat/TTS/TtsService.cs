@@ -275,6 +275,44 @@ namespace VPet.Plugin.MeiChat.TTS
         /// <summary>SAPI 是否可用</summary>
         public bool IsAvailable => _sapiAvailable;
 
+        /// <summary>扫描系统已安装的语音并返回列表（静态方法，无需创建实例）</summary>
+        public static List<string> ScanInstalledVoices()
+        {
+            try
+            {
+                var speechType = Type.GetTypeFromProgID("SAPI.SpVoice");
+                if (speechType == null) return new();
+                var synth = Activator.CreateInstance(speechType);
+                var voices = new List<string>();
+                try
+                {
+                    var allVoices = synth.GetType().InvokeMember("GetVoices",
+                        BindingFlags.InvokeMethod, null, synth, null);
+                    var count = (int)allVoices.GetType().InvokeMember("Count",
+                        BindingFlags.GetProperty, null, allVoices, null);
+                    for (int i = 0; i < count; i++)
+                    {
+                        try
+                        {
+                            var voice = allVoices.GetType().InvokeMember("Item",
+                                BindingFlags.GetProperty, null, allVoices, new object[] { i });
+                            var name = voice.GetType().InvokeMember("GetAttribute",
+                                BindingFlags.InvokeMethod, null, voice, new object[] { "Name" }) as string;
+                            if (!string.IsNullOrEmpty(name))
+                                voices.Add(name);
+                        }
+                        catch { }
+                    }
+                }
+                finally
+                {
+                    try { ((IDisposable)synth).Dispose(); } catch { }
+                }
+                return voices;
+            }
+            catch { return new(); }
+        }
+
         public void Dispose()
         {
             if (_disposed) return;

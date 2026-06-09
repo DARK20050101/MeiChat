@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
 using VPet.Plugin.MeiChat.Models;
+using VPet.Plugin.MeiChat.TTS;
 
 namespace VPet.Plugin.MeiChat.Views
 {
@@ -76,6 +77,130 @@ namespace VPet.Plugin.MeiChat.Views
             PetNameBox.Text = _config.PetName;
             WorkDirBox.Text = _config.WorkingDirectory;
             SystemPromptBox.Text = _config.SystemPrompt;
+
+            // TTS 配置
+            LoadTtsSettings();
+        }
+
+        // ===== TTS 语音配置 =====
+
+        private List<string> _availableVoices = new();
+
+        private void LoadTtsSettings()
+        {
+            TtsEnabledBox.IsChecked = _config.TtsEnabled;
+
+            // 语音提供者
+            foreach (ComboBoxItem item in TtsProviderBox.Items)
+            {
+                if (item.Tag?.ToString() == _config.TtsProvider)
+                {
+                    item.IsSelected = true;
+                    break;
+                }
+            }
+
+            // 扫描可用语音
+            _availableVoices = TtsService.ScanInstalledVoices();
+            VoiceSelectBox.Items.Clear();
+            if (_availableVoices.Count > 0)
+            {
+                if (_config.TtsProvider == "Tongyi")
+                {
+                    // 通义模式显示模型名
+                    VoiceSelectBox.Items.Add("sambert-zhichu-v1（标准）");
+                    VoiceSelectBox.Items.Add("sambert-zhimao-v1（萌妹）");
+                    VoiceSelectBox.Items.Add("sambert-zhiwei-v1（御姐）");
+                    VoiceSelectBox.SelectedIndex = 0;
+                }
+                else
+                {
+                    foreach (var v in _availableVoices)
+                    {
+                        VoiceSelectBox.Items.Add(v);
+                    }
+                    // 选中已配置的或默认中文语音
+                    if (!string.IsNullOrWhiteSpace(_config.TtsVoiceName))
+                    {
+                        for (int i = 0; i < VoiceSelectBox.Items.Count; i++)
+                        {
+                            if (VoiceSelectBox.Items[i].ToString() == _config.TtsVoiceName)
+                            { VoiceSelectBox.SelectedIndex = i; break; }
+                        }
+                    }
+                    if (VoiceSelectBox.SelectedIndex < 0)
+                    {
+                        // 默认选第一个中文语音
+                        for (int i = 0; i < _availableVoices.Count; i++)
+                        {
+                            if (_availableVoices[i].Contains("zh"))
+                            { VoiceSelectBox.SelectedIndex = i; break; }
+                        }
+                    }
+                    if (VoiceSelectBox.SelectedIndex < 0 && VoiceSelectBox.Items.Count > 0)
+                        VoiceSelectBox.SelectedIndex = 0;
+                }
+            }
+            else
+            {
+                VoiceSelectBox.Items.Add("（未检测到语音）");
+                VoiceSelectBox.SelectedIndex = 0;
+            }
+
+            // 语速
+            TtsRateSlider.Value = _config.TtsRate;
+            TtsRateValue.Text = _config.TtsRate.ToString("F0");
+            TtsRateSlider.ValueChanged += (s, e) =>
+                TtsRateValue.Text = e.NewValue.ToString("F0");
+
+            // 通义千问配置
+            if (!string.IsNullOrWhiteSpace(_config.TongyiApiKey))
+            {
+                TongyiKeyBox.Password = _config.TongyiApiKey;
+            }
+            TongyiVoiceBox.Text = _config.TongyiVoice;
+
+            // 根据提供者显示/隐藏通义面板
+            TongyiPanel.Visibility = _config.TtsProvider == "Tongyi" ? Visibility.Visible : Visibility.Collapsed;
+            VoiceLabel.Text = _config.TtsProvider == "Tongyi" ? "语音模型" : "选择语音";
+        }
+
+        private void TtsEnabled_Changed(object sender, RoutedEventArgs e)
+        {
+            // 不需要额外操作，保存时会读取 CheckBox 状态
+        }
+
+        private void TtsProvider_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (TtsProviderBox.SelectedItem is ComboBoxItem item)
+            {
+                var isTongyi = item.Tag?.ToString() == "Tongyi";
+                TongyiPanel.Visibility = isTongyi ? Visibility.Visible : Visibility.Collapsed;
+                VoiceLabel.Text = isTongyi ? "语音模型" : "选择语音";
+
+                // 切换语音列表
+                VoiceSelectBox.Items.Clear();
+                if (isTongyi)
+                {
+                    VoiceSelectBox.Items.Add("sambert-zhichu-v1（标准）");
+                    VoiceSelectBox.Items.Add("sambert-zhimao-v1（萌妹）");
+                    VoiceSelectBox.Items.Add("sambert-zhiwei-v1（御姐）");
+                    VoiceSelectBox.SelectedIndex = 0;
+                }
+                else
+                {
+                    foreach (var v in _availableVoices)
+                        VoiceSelectBox.Items.Add(v);
+                    // 选第一个中文语音
+                    for (int i = 0; i < _availableVoices.Count; i++)
+                    {
+                        if (_availableVoices[i].Contains("zh"))
+                        { VoiceSelectBox.SelectedIndex = i; break; }
+                    }
+                    if (VoiceSelectBox.SelectedIndex < 0 && VoiceSelectBox.Items.Count > 0)
+                        VoiceSelectBox.SelectedIndex = 0;
+                }
+            }
         }
 
         /// <summary>预设选择后自动填充模型名</summary>
@@ -123,6 +248,20 @@ namespace VPet.Plugin.MeiChat.Views
                 int.TryParse(tokenItem.Tag?.ToString(), out var maxTokens))
             {
                 _config.MaxTokens = maxTokens;
+            }
+
+            // TTS 配置
+            _config.TtsEnabled = TtsEnabledBox.IsChecked == true;
+            _config.TtsProvider = TtsProviderBox.SelectedItem is ComboBoxItem provItem
+                ? provItem.Tag?.ToString() ?? "Windows" : "Windows";
+            _config.TtsVoiceName = VoiceSelectBox.SelectedItem?.ToString() ?? "";
+            _config.TtsRate = TtsRateSlider.Value;
+            if (_config.TtsProvider == "Tongyi")
+            {
+                _config.TongyiApiKey = TongyiKeyBox.Password.Trim();
+                _config.TongyiVoice = TongyiVoiceBox.Text.Trim();
+                if (string.IsNullOrWhiteSpace(_config.TongyiVoice))
+                    _config.TongyiVoice = "sambert-zhichu-v1";
             }
 
             _onSaved?.Invoke(_config);

@@ -134,6 +134,54 @@
                 </StackPanel>
             </Border>
 
+            <!-- ====== 语音朗读 ====== -->
+            <Border Background="#F0FFF0" CornerRadius="12" Padding="16" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="🔊 语音朗读" FontSize="16" FontWeight="SemiBold"
+                               Foreground="#555" Margin="0,0,0,12"/>
+
+                    <CheckBox x:Name="TtsEnabledBox" Content="启用语音朗读"
+                              FontSize="13" Foreground="#666" Margin="0,0,0,10"
+                              Checked="TtsEnabled_Changed" Unchecked="TtsEnabled_Changed"/>
+
+                    <TextBlock Text="语音提供者" FontSize="13" Foreground="#666" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="TtsProviderBox" Height="34" FontSize="13"
+                              BorderBrush="#DDD" SelectionChanged="TtsProvider_Changed">
+                        <ComboBoxItem Tag="Windows">Windows 内置语音（SAPI）</ComboBoxItem>
+                        <ComboBoxItem Tag="Tongyi">通义千问语音</ComboBoxItem>
+                    </ComboBox>
+
+                    <TextBlock x:Name="VoiceLabel" Text="选择语音" FontSize="13" Foreground="#666" Margin="0,10,0,4"/>
+                    <ComboBox x:Name="VoiceSelectBox" Height="34" FontSize="13"
+                              BorderBrush="#DDD"/>
+
+                    <TextBlock Text="语速" FontSize="13" Foreground="#666" Margin="0,10,0,4"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Slider x:Name="TtsRateSlider" Grid.Column="0"
+                                Minimum="-10" Maximum="10" TickFrequency="1"
+                                Value="0" IsSnapToTickEnabled="True"
+                                Margin="0,0,12,0"/>
+                        <TextBlock x:Name="TtsRateValue" Grid.Column="1"
+                                   Text="0" VerticalAlignment="Center"
+                                   FontSize="13" Foreground="#666" Width="30"/>
+                    </Grid>
+
+                    <!-- 通义千问配置（默认隐藏） -->
+                    <StackPanel x:Name="TongyiPanel" Visibility="Collapsed" Margin="0,10,0,0">
+                        <TextBlock Text="通义千问 API Key" FontSize="13" Foreground="#666" Margin="0,0,0,4"/>
+                        <PasswordBox x:Name="TongyiKeyBox" Height="36" FontSize="13"
+                                     PasswordChar="●" BorderBrush="#DDD" Padding="8,0"/>
+                        <TextBlock Text="语音模型（如 sambert-zhichu-v1）" FontSize="13" Foreground="#666" Margin="0,8,0,4"/>
+                        <TextBox x:Name="TongyiVoiceBox" Height="34" FontSize="13"
+                                 BorderBrush="#DDD" Padding="8,0"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
             <!-- ====== 快捷回复 ====== -->
             <Border Background="#FFF8F0" CornerRadius="12" Padding="16" Margin="0,0,0,16">
                 <StackPanel>
