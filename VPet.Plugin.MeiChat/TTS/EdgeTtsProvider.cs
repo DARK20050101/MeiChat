@@ -1,93 +1,120 @@
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 
 namespace VPet.Plugin.MeiChat.TTS
 {
     /// <summary>
-    /// Edge TTS 提供者 — 通过 WebSocket 调用 Microsoft Edge 在线语音
-    /// 无需任何外部依赖，直接使用 Azure Speech 服务
+    /// Edge TTS 提供者 — 通过 WebSocket 调用微软在线语音服务
+    /// 零依赖，直连 speech.platform.bing.com
     /// </summary>
     public class EdgeTtsProvider : ITtsProvider
     {
         public string Name => "Edge TTS";
-
         public double Volume { get; set; } = 1.0;
         public double Rate { get; set; } = 0.0;
         public string VoiceName { get; set; } = "zh-CN-XiaoxiaoNeural";
 
-        private static readonly string[] EdgeVoices = new[]
-        {
-            "zh-CN-XiaoxiaoNeural",   // 晓晓（女，温柔）
-            "zh-CN-YunxiNeural",      // 云希（男，阳光）
-            "zh-CN-YunyangNeural",    // 云扬（男，专业）
-            "zh-CN-XiaochenNeural",   // 晓辰（女，活泼）
-            "zh-CN-XiaohanNeural",    // 晓涵（女，可爱）
-            "zh-CN-XiaomengNeural",   // 晓梦（女，活力）
-            "zh-CN-XiaomoNeural",     // 晓墨（女，文学）
-            "zh-CN-XiaoqiuNeural",    // 晓秋（女，柔和）
-            "zh-CN-XiaoruiNeural",    // 晓睿（女，知性）
-            "zh-CN-XiaoshuangNeural", // 晓双（女，亲切）
-            "zh-CN-XiaoyanNeural",    // 晓颜（女，自然）
-            "zh-CN-XiaoyouNeural",    // 晓悠（女，元气）
-            "zh-HK-HiuMaanNeural",    // 晓曼（粤语）
-            "zh-TW-HsiaoChenNeural",  // 晓臻（台普）
-            "zh-TW-HsiaoYuNeural",    // 晓雨（台普）
-        };
+        public string LastError { get; private set; } = "";
 
-        private static readonly Dictionary<string, string> VoiceLabels = new()
+        // 连接超时
+        private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(10);
+        private CancellationTokenSource? _currentCts;
+
+        private static readonly (string Voice, string Label)[] EdgeVoices = new[]
         {
-            ["zh-CN-XiaoxiaoNeural"] = "晓晓（女·温柔）",
-            ["zh-CN-YunxiNeural"] = "云希（男·阳光）",
-            ["zh-CN-YunyangNeural"] = "云扬（男·专业）",
-            ["zh-CN-XiaochenNeural"] = "晓辰（女·活泼）",
-            ["zh-CN-XiaohanNeural"] = "晓涵（女·可爱）",
-            ["zh-CN-XiaomengNeural"] = "晓梦（女·活力）",
-            ["zh-CN-XiaomoNeural"] = "晓墨（女·文学）",
-            ["zh-CN-XiaoqiuNeural"] = "晓秋（女·柔和）",
-            ["zh-CN-XiaoruiNeural"] = "晓睿（女·知性）",
-            ["zh-CN-XiaoshuangNeural"] = "晓双（女·亲切）",
-            ["zh-CN-XiaoyanNeural"] = "晓颜（女·自然）",
-            ["zh-CN-XiaoyouNeural"] = "晓悠（女·元气）",
+            ("zh-CN-XiaoxiaoNeural",   "晓晓（女·温柔）"),
+            ("zh-CN-YunxiNeural",      "云希（男·阳光）"),
+            ("zh-CN-YunyangNeural",    "云扬（男·专业）"),
+            ("zh-CN-XiaochenNeural",   "晓辰（女·活泼）"),
+            ("zh-CN-XiaohanNeural",    "晓涵（女·可爱）"),
+            ("zh-CN-XiaomengNeural",   "晓梦（女·活力）"),
+            ("zh-CN-XiaomoNeural",     "晓墨（女·文学）"),
+            ("zh-CN-XiaoqiuNeural",    "晓秋（女·柔和）"),
+            ("zh-CN-XiaoruiNeural",    "晓睿（女·知性）"),
+            ("zh-CN-XiaoshuangNeural", "晓双（女·亲切）"),
+            ("zh-CN-XiaoyanNeural",    "晓颜（女·自然）"),
+            ("zh-CN-XiaoyouNeural",    "晓悠（女·元气）"),
+            ("zh-HK-HiuMaanNeural",    "晓曼（粤语·女）"),
+            ("zh-TW-HsiaoChenNeural",  "晓臻（台普·女）"),
+            ("zh-TW-HsiaoYuNeural",    "晓雨（台普·女）"),
         };
 
         public static List<string> GetVoiceList()
-        {
-            return EdgeVoices.Select(v => $"{v} ({GetLabel(v)})").ToList();
-        }
+            => EdgeVoices.Select(v => $"{v.Voice} ({v.Label})").ToList();
 
         public static string GetLabel(string voice)
-        {
-            return VoiceLabels.TryGetValue(voice, out var l) ? l : "中文语音";
-        }
+            => EdgeVoices.FirstOrDefault(v => v.Voice == voice).Label ?? "中文语音";
 
         public async Task SpeakAsync(string text, CancellationToken ct)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
+            LastError = "";
+            _currentCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
             try
             {
-                var audioData = await SynthesizeAsync(text, ct);
+                var audioData = await SynthesizeWithFallbackAsync(text, _currentCts.Token);
                 if (audioData != null && audioData.Length > 0)
                     PlayAudio(audioData);
             }
-            catch { }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                Debug.WriteLine($"[EdgeTTS] 合成失败: {ex.Message}");
+            }
         }
 
-        public void Stop() { }
+        public void Stop()
+        {
+            try { _currentCts?.Cancel(); } catch { }
+        }
 
-        private async Task<byte[]?> SynthesizeAsync(string text, CancellationToken ct)
+        /// <summary>主合成方法，带自动 fallback</summary>
+        private async Task<byte[]?> SynthesizeWithFallbackAsync(string text, CancellationToken ct)
+        {
+            try
+            {
+                return await SynthesizeViaWebSocketAsync(text, ct);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[EdgeTTS] WebSocket失败: {ex.Message}");
+                // WebSocket 失败时尝试 HTTP 方式
+                try { return await SynthesizeViaHttpAsync(text, ct); }
+                catch (Exception ex2)
+                {
+                    Debug.WriteLine($"[EdgeTTS] HTTP也失败: {ex2.Message}");
+                    return null;
+                }
+            }
+        }
+
+        // ===== WebSocket 方式 =====
+
+        private async Task<byte[]?> SynthesizeViaWebSocketAsync(string text, CancellationToken ct)
         {
             using var ws = new ClientWebSocket();
-            ws.Options.SetRequestHeader("Origin", "chrome://edge");
+            ws.Options.SetRequestHeader("Origin", "https://azure.microsoft.com");
+            ws.Options.SetRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
 
+            var connId = Guid.NewGuid().ToString("N").ToUpper();
             var url = $"wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud" +
-                      $"?TrustedClient=1&ConnectionId={Guid.NewGuid():N}";
-            await ws.ConnectAsync(new Uri(url), ct);
+                      $"?TrustedClient=1&ConnectionId={connId}";
 
-            // 1. 发送 synthesis context
+            using var connectCts = new CancellationTokenSource(ConnectTimeout);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, connectCts.Token);
+            try { await ws.ConnectAsync(new Uri(url), linkedCts.Token); }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                throw new TimeoutException("连接 Edge TTS 服务器超时");
+            }
+
+            // Step 1: 发送 synthesis.context 配置
             var context = JsonSerializer.Serialize(new
             {
                 context = new
@@ -96,132 +123,137 @@ namespace VPet.Plugin.MeiChat.TTS
                     {
                         audio = new
                         {
-                            metadataoptions = new { },
-                            outputformat = "audio-24khz-96kbitrate-mono-mp3"
+                            metadataoptions = new
+                            {
+                                sentenceBoundaryEnabled = "false",
+                                wordBoundaryEnabled = "false"
+                            },
+                            outputFormat = "audio-24khz-96kbitrate-mono-mp3"
+                        },
+                        request = new
+                        {
+                            connectionId = connId
                         }
                     }
                 }
             });
-            var contextMsg = $"X-RequestId:{GuidNew()}\r\nContent-Type:application/json; charset=utf-8\r\n\r\n{context}";
-            await SendWsMessage(ws, contextMsg, ct);
+            await SendWsText(ws, connId, "application/json; charset=utf-8", context, ct);
 
-            // 2. 发送 SSML
-            var rateStr = Rate switch
-            {
-                > 0 => $"+{Rate * 5:F0}%",
-                < 0 => $"{Rate * 5:F0}%",
-                _ => "0%"
-            };
+            // Step 2: 发送 SSML
+            var rateStr = Rate switch { > 0 => $"+{Rate * 5:F0}%", < 0 => $"{Rate * 5:F0}%", _ => "+0%" };
             var volStr = $"{(int)(Volume * 100)}%";
-
             var ssml = $@"<speak version=""1.0"" xmlns=""http://www.w3.org/2001/10/synthesis"" xmlns:mstts=""https://www.w3.org/2001/mstts"" xml:lang=""zh-CN""><voice name=""{VoiceName}""><prosody rate=""{rateStr}"" volume=""{volStr}"">{EscapeXml(text)}</prosody></voice></speak>";
 
-            // 分块发送长文本（Edge TTS 有限制）
-            const int maxLen = 3000;
+            await SendWsText(ws, connId, "application/ssml+xml", ssml, ct);
+
+            // Step 3: 接收音频数据
             var audioData = new List<byte>();
-
-            if (text.Length > maxLen)
-            {
-                // 长文本分段合成
-                var chunks = SplitText(text, maxLen);
-                foreach (var chunk in chunks)
-                {
-                    if (ct.IsCancellationRequested) break;
-                    var chunkSsml = $@"<speak version=""1.0"" xmlns=""http://www.w3.org/2001/10/synthesis"" xmlns:mstts=""https://www.w3.org/2001/mstts"" xml:lang=""zh-CN""><voice name=""{VoiceName}""><prosody rate=""{rateStr}"" volume=""{volStr}"">{EscapeXml(chunk)}</prosody></voice></speak>";
-                    var chunkData = await SynthesizeOne(ws, chunkSsml, ct);
-                    if (chunkData != null) audioData.AddRange(chunkData);
-                }
-            }
-            else
-            {
-                var data = await SynthesizeOne(ws, ssml, ct);
-                if (data != null) audioData.AddRange(data);
-            }
-
-            return audioData.ToArray();
-        }
-
-        private async Task<byte[]?> SynthesizeOne(ClientWebSocket ws, string ssml, CancellationToken ct)
-        {
-            var turnMsg = $"X-RequestId:{GuidNew()}\r\nContent-Type:application/ssml+xml\r\n\r\n{ssml}";
-            await SendWsMessage(ws, turnMsg, ct);
-
-            // 接收音频
-            var audioData = new List<byte>();
-            var audioStarted = false;
-            var buffer = new byte[8192];
+            var buffer = new byte[65536];
+            bool headerSkipped = false;
 
             while (ws.State == WebSocketState.Open)
             {
                 ct.ThrowIfCancellationRequested();
                 var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
 
-                if (result.MessageType == WebSocketMessageType.Text)
+                if (result.MessageType == WebSocketMessageType.Close)
+                    break;
+
+                if (result.MessageType == WebSocketMessageType.Binary)
                 {
-                    var text = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    // 音频数据在 Binary 消息中，Text 消息是元数据
-                    if (text.Contains("Path:audio"))
-                        audioStarted = true;
-                }
-                else if (result.MessageType == WebSocketMessageType.Binary)
-                {
-                    if (audioStarted)
+                    // 跳过前2字节（网络字节序长度前缀），取实际音频数据
+                    int offset = headerSkipped ? 0 : 2;
+                    headerSkipped = true;
+                    int dataLen = result.Count - offset;
+                    if (dataLen > 0)
                     {
-                        // 跳过前两个字节（头）
-                        var data = new byte[result.Count];
-                        Array.Copy(buffer, data, result.Count);
-                        audioData.AddRange(data);
+                        audioData.AddRange(new ArraySegment<byte>(buffer, offset, dataLen));
                     }
                     if (result.EndOfMessage) break;
                 }
-                else if (result.MessageType == WebSocketMessageType.Close)
-                    break;
             }
 
-            // 清理音频头部的元数据
-            return TrimAudioData(audioData.ToArray());
+            return TrimAudioHeader(audioData.ToArray());
         }
 
-        private static byte[]? TrimAudioData(byte[] data)
+        private static async Task SendWsText(ClientWebSocket ws, string requestId, string contentType, string body, CancellationToken ct)
         {
-            if (data.Length < 10) return null;
-            // 查找 MP3 帧头 0xFF 0xFB
+            var msg = $"X-RequestId:{requestId}\r\nContent-Type:{contentType}\r\n\r\n{body}";
+            var bytes = Encoding.UTF8.GetBytes(msg);
+            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
+        }
+
+        // ===== HTTP Fallback 方式 =====
+
+        private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+
+        private async Task<byte[]?> SynthesizeViaHttpAsync(string text, CancellationToken ct)
+        {
+            // 尝试通过微软演示页面用的 REST API
+            var ssml = $@"<speak version=""1.0"" xmlns=""http://www.w3.org/2001/10/synthesis"" xml:lang=""zh-CN""><voice name=""{VoiceName}"">{EscapeXml(text)}</voice></speak>";
+
+            var body = new StringContent(ssml, Encoding.UTF8, "application/ssml+xml");
+            var request = new HttpRequestMessage(HttpMethod.Post,
+                "https://eastus.api.cognitive.microsoft.com/sts/v1.0/issuetoken")
+            { Content = body };
+
+            var response = await _http.PostAsync(
+                "https://synthesisspeech.microsoft.com/api/v1/speech/synthesize",
+                body, ct);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var audioBytes = await response.Content.ReadAsByteArrayAsync(ct);
+                return TrimAudioHeader(audioBytes);
+            }
+
+            throw new Exception($"HTTP合成失败: HTTP {(int)response.StatusCode}");
+        }
+
+        // ===== 音频处理 =====
+
+        private static byte[]? TrimAudioHeader(byte[] data)
+        {
+            if (data == null || data.Length < 4) return null;
+
+            // 跳过 RIFF WAV 头（如果有）
+            if (data[0] == 0x52 && data[1] == 0x49) // "RI"
+            {
+                // 查找 "data" 标记开始的数据区
+                for (int i = 0; i < data.Length - 4; i++)
+                {
+                    if (data[i] == 0x64 && data[i + 1] == 0x61 && data[i + 2] == 0x74 && data[i + 3] == 0x61) // "data"
+                    {
+                        int dataSize = (data[i + 4]) | (data[i + 5] << 8) | (data[i + 6] << 16) | (data[i + 7] << 24);
+                        var result = new byte[dataSize];
+                        Array.Copy(data, i + 8, result, 0, Math.Min(dataSize, data.Length - i - 8));
+                        return result;
+                    }
+                }
+                return data;
+            }
+
+            // 查找 MP3 帧头
             for (int i = 0; i < data.Length - 1; i++)
             {
                 if (data[i] == 0xFF && (data[i + 1] & 0xE0) == 0xE0)
                     return data[i..];
             }
+
+            // 没有特殊头，直接返回
             return data;
         }
 
-        private static async Task SendWsMessage(ClientWebSocket ws, string message, CancellationToken ct)
-        {
-            var bytes = Encoding.UTF8.GetBytes(message);
-            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
-        }
-
-        private static string GuidNew() => Guid.NewGuid().ToString("N");
-
         private static string EscapeXml(string text)
-        {
-            return text.Replace("&", "&amp;")
-                       .Replace("<", "&lt;")
-                       .Replace(">", "&gt;")
-                       .Replace("\"", "&quot;")
-                       .Replace("'", "&apos;");
-        }
+            => text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;")
+                   .Replace("\"", "&quot;").Replace("'", "&apos;");
 
-        private static List<string> SplitText(string text, int maxLen)
-        {
-            var result = new List<string>();
-            for (int i = 0; i < text.Length; i += maxLen)
-                result.Add(text.Substring(i, Math.Min(maxLen, text.Length - i)));
-            return result;
-        }
+        // ===== 播放 =====
 
         private static void PlayAudio(byte[] audioData)
         {
-            var tmp = Path.GetTempFileName() + ".mp3";
+            var ext = DetectFormat(audioData);
+            var tmp = Path.GetTempFileName() + ext;
             try
             {
                 File.WriteAllBytes(tmp, audioData);
@@ -233,11 +265,20 @@ namespace VPet.Plugin.MeiChat.TTS
                 });
                 if (proc != null)
                 {
-                    // 等待播放启动（不等待完成，让系统播放器继续播放）
                     proc.WaitForExit(2000);
+                    if (!proc.HasExited) try { proc.Kill(); } catch { }
                 }
             }
             finally { try { File.Delete(tmp); } catch { } }
+        }
+
+        private static string DetectFormat(byte[] data)
+        {
+            if (data.Length < 4) return ".bin";
+            if (data[0] == 0x52 && data[1] == 0x49) return ".wav";
+            if (data[0] == 0xFF && (data[1] & 0xE0) == 0xE0) return ".mp3";
+            if (data[0] == 0x4F && data[1] == 0x67) return ".ogg";
+            return ".mp3";
         }
     }
 }

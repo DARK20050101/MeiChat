@@ -233,6 +233,12 @@ namespace VPet.Plugin.MeiChat
                     ToggleTts();
                     return;
                 }
+                if (cmd == "/stop" || cmd == "/停")
+                {
+                    _plugin.Tts?.Stop();
+                    _plugin.MW.Main.Say("🛑 好的，不说了~");
+                    return;
+                }
                 if (cmd == "/clear")
                 {
                     _plugin.ClearHistory();
@@ -606,6 +612,7 @@ namespace VPet.Plugin.MeiChat
                        "/ui 或 /long - 打开长聊天框\n" +
                        "/memory - 管理芽衣的记忆\n" +
                        "/tts - 切换语音朗读\n" +
+                       "/stop - 暂停当前朗读\n" +
                        "/auto - 切换自动执行模式\n" +
                        "/clear - 清空历史\n" +
                        "/quiet - 安静 3 小时\n" +
