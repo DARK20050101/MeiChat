@@ -544,10 +544,9 @@ namespace VPet.Plugin.MeiChat
             Tts.Enabled = Config.TtsEnabled;
             Tts.Provider = Config.TtsProvider switch
             {
-                "Edge" => TTS.TtsProviderType.EdgeTTS,
                 "Tongyi" => TTS.TtsProviderType.TongyiQianwen,
                 "CustomHTTP" => TTS.TtsProviderType.CustomHTTP,
-                _ => TTS.TtsProviderType.WindowsSAPI
+                _ => TTS.TtsProviderType.EdgeTTS
             };
             Tts.CustomEndpoint = Config.CustomTtsEndpoint;
             Tts.CustomTemplate = Config.CustomTtsTemplate;
@@ -562,16 +561,12 @@ namespace VPet.Plugin.MeiChat
             // 语音选择
             if (!string.IsNullOrWhiteSpace(Config.TtsVoiceName))
             {
-                if (Config.TtsProvider == "Edge")
-                    Tts.EdgeVoice = Config.TtsVoiceName;
-                else
-                    Tts.SapiVoice = Config.TtsVoiceName;
+                Tts.EdgeVoice = Config.TtsVoiceName;
             }
             else
             {
-                // 首次运行，默认选 Edge 晓晓
+                // 首次运行，默认 Edge 晓晓
                 Tts.EdgeVoice = "zh-CN-XiaoxiaoNeural";
-                Tts.SapiVoice = "zh-CN-XiaoxiaoNeural";
                 Config.TtsVoiceName = "zh-CN-XiaoxiaoNeural";
                 Config.TtsProvider = "Edge";
                 Config.Save();

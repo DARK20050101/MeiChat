@@ -84,8 +84,6 @@ namespace VPet.Plugin.MeiChat.Views
 
         // ===== TTS 语音配置 =====
 
-        private List<string> _availableVoices = new();
-
         private void LoadTtsSettings()
         {
             TtsEnabledBox.IsChecked = _config.TtsEnabled;
@@ -100,8 +98,6 @@ namespace VPet.Plugin.MeiChat.Views
                 }
             }
 
-            // 扫描可用语音
-            _availableVoices = WindowsSapiProvider.ScanAllVoices();
             VoiceSelectBox.Items.Clear();
             RefreshVoiceList();
 
@@ -141,11 +137,28 @@ namespace VPet.Plugin.MeiChat.Views
             // 不需要额外操作，保存时会读取 CheckBox 状态
         }
 
+        private void RefreshEdgeVoiceList()
+        {
+            VoiceSelectBox.Items.Clear();
+            var edgeVoices = EdgeTtsProvider.GetVoiceList();
+            foreach (var v in edgeVoices) VoiceSelectBox.Items.Add(v);
+            if (!string.IsNullOrWhiteSpace(_config.TtsVoiceName))
+            {
+                for (int i = 0; i < VoiceSelectBox.Items.Count; i++)
+                {
+                    if (VoiceSelectBox.Items[i].ToString()!.StartsWith(_config.TtsVoiceName))
+                    { VoiceSelectBox.SelectedIndex = i; break; }
+                }
+            }
+            if (VoiceSelectBox.SelectedIndex < 0)
+                VoiceSelectBox.SelectedIndex = 0;
+        }
+
         private void TtsProvider_Changed(object sender, SelectionChangedEventArgs e)
         {
             if (TtsProviderBox.SelectedItem is ComboBoxItem item)
             {
-                var prov = item.Tag?.ToString() ?? "Windows";
+                var prov = item.Tag?.ToString() ?? "Edge";
                 TongyiPanel.Visibility = prov == "Tongyi" ? Visibility.Visible : Visibility.Collapsed;
                 CustomHttpPanel.Visibility = prov == "CustomHTTP" ? Visibility.Visible : Visibility.Collapsed;
                 VoiceLabel.Text = prov switch
@@ -153,7 +166,7 @@ namespace VPet.Plugin.MeiChat.Views
                     "Edge" => "Edge 语音（在线）",
                     "Tongyi" => "语音模型",
                     "CustomHTTP" => "可用语音",
-                    _ => "选择语音"
+                    _ => "Edge 语音（在线）"
                 };
                 RefreshVoiceList();
             }
@@ -196,24 +209,8 @@ namespace VPet.Plugin.MeiChat.Views
                     VoiceSelectBox.SelectedIndex = 0;
                     break;
 
-                default: // Windows SAPI
-                    foreach (var v in _availableVoices) VoiceSelectBox.Items.Add(v);
-                    if (!string.IsNullOrWhiteSpace(_config.TtsVoiceName))
-                    {
-                        for (int i = 0; i < VoiceSelectBox.Items.Count; i++)
-                        {
-                            if (VoiceSelectBox.Items[i].ToString() == _config.TtsVoiceName)
-                            { VoiceSelectBox.SelectedIndex = i; break; }
-                        }
-                    }
-                    if (VoiceSelectBox.SelectedIndex < 0)
-                    {
-                        for (int i = 0; i < _availableVoices.Count; i++)
-                            if (_availableVoices[i].Contains("zh"))
-                            { VoiceSelectBox.SelectedIndex = i; break; }
-                    }
-                    if (VoiceSelectBox.SelectedIndex < 0 && VoiceSelectBox.Items.Count > 0)
-                        VoiceSelectBox.SelectedIndex = 0;
+                default: // Edge TTS
+                    RefreshEdgeVoiceList();
                     break;
             }
         }
@@ -369,7 +366,7 @@ namespace VPet.Plugin.MeiChat.Views
             {
                 var prov = TtsProviderBox.SelectedItem is ComboBoxItem pi ? pi.Tag?.ToString() : "Edge";
                 var rawVoice = VoiceSelectBox.SelectedItem?.ToString() ?? "";
-                var voiceName = rawVoice.Split(' ')[0];
+                var voiceName = rawVoice.Contains(' ') ? rawVoice.Split(' ')[0] : rawVoice;
 
                 ITtsProvider? provider = prov switch
                 {
@@ -390,14 +387,7 @@ namespace VPet.Plugin.MeiChat.Views
                     _ => null
                 };
 
-                if (provider == null && prov == "Windows")
-                {
-                    var sapi = new WindowsSapiProvider();
-                    if (!string.IsNullOrWhiteSpace(voiceName))
-                        sapi.VoiceName = voiceName;
-                    await sapi.SpeakAsync("你好，我是芽衣，这是当前语音的试听效果。", CancellationToken.None);
-                }
-                else if (provider != null)
+                if (provider != null)
                 {
                     await provider.SpeakAsync("你好，我是芽衣，这是当前语音的试听效果。", CancellationToken.None);
                 }

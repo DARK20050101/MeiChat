@@ -526,9 +526,9 @@ namespace VPet.Plugin.MeiChat
             var status = _plugin.Tts.Enabled ? "已开启 🔊" : "已关闭 🔇";
             var provName = _plugin.Tts.Provider switch
             {
-                TTS.TtsProviderType.EdgeTTS => "Edge TTS（晓晓）",
                 TTS.TtsProviderType.TongyiQianwen => "通义千问",
-                _ => "Windows语音"
+                TTS.TtsProviderType.CustomHTTP => "自定义TTS",
+                _ => "Edge TTS"
             };
             _plugin.MW.Main.Say($"语音朗读{status}\n当前使用: {provName}");
         }

@@ -148,7 +148,6 @@
                     <ComboBox x:Name="TtsProviderBox" Height="34" FontSize="13"
                               BorderBrush="#DDD" SelectionChanged="TtsProvider_Changed">
                         <ComboBoxItem Tag="Edge">Edge TTS（晓晓等在线语音）🌐</ComboBoxItem>
-                        <ComboBoxItem Tag="Windows">Windows 内置语音（SAPI）</ComboBoxItem>
                         <ComboBoxItem Tag="Tongyi">通义千问语音</ComboBoxItem>
                         <ComboBoxItem Tag="CustomHTTP">自定义 HTTP（第三方模型）🔌</ComboBoxItem>
                     </ComboBox>
