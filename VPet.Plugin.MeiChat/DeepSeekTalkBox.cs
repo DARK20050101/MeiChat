@@ -518,7 +518,7 @@ namespace VPet.Plugin.MeiChat
             _plugin.Config.TtsEnabled = _plugin.Tts.Enabled;
             _plugin.Config.Save();
             var status = _plugin.Tts.Enabled ? "已开启 🔊" : "已关闭 🔇";
-            _plugin.MW.Main.Say($"语音朗读{status}\n当前使用: {(_plugin.Tts.Provider == TTS.TtsProvider.TongyiQianwen ? "通义千问" : "Windows语音")}");
+            _plugin.MW.Main.Say($"语音朗读{status}\n当前使用: {(_plugin.Tts.Provider == TTS.TtsProviderType.TongyiQianwen ? "通义千问" : "Windows语音")}");
         }
 
         /// <summary>按句朗读回复文本（后台任务，不阻塞主流程）</summary>

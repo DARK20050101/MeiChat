@@ -100,8 +100,8 @@ namespace VPet.Plugin.MeiChat.Views
                 }
             }
 
-            // 扫描可用语音
-            _availableVoices = TtsService.ScanInstalledVoices();
+            // 扫描可用语音（通过 Windows SAPI）
+            _availableVoices = WindowsSapiProvider.ScanAllVoices();
             VoiceSelectBox.Items.Clear();
             if (_availableVoices.Count > 0)
             {

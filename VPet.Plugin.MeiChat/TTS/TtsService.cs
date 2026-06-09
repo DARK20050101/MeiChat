@@ -1,316 +1,300 @@
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
-using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace VPet.Plugin.MeiChat.TTS
 {
-    /// <summary>TTS 提供者</summary>
-    public enum TtsProvider
+    /// <summary>TTS 提供者类型</summary>
+    public enum TtsProviderType
     {
-        /// <summary>Windows 内置语音（SAPI / Edge 神经语音）</summary>
-        WindowsBuiltIn,
-        /// <summary>阿里云通义千问语音合成</summary>
+        WindowsSAPI,
         TongyiQianwen
     }
 
     /// <summary>
-    /// 语音朗读服务 — 通过 Windows SAPI COM 实现，无需额外 DLL
+    /// TTS 提供者接口 — 第三方语音模型实现此接口即可接入
     /// </summary>
-    public class TtsService : IDisposable
+    public interface ITtsProvider
     {
-        private dynamic? _synth; // 延迟绑定的 SAPI.SpVoice
-        private readonly HttpClient _http = new();
-        private bool _disposed;
-        private bool _sapiAvailable;
+        string Name { get; }
+        Task SpeakAsync(string text, CancellationToken ct);
+        void Stop();
+    }
 
-        public TtsProvider Provider { get; set; } = TtsProvider.WindowsBuiltIn;
+    /// <summary>
+    /// Windows SAPI 语音提供者（通过 COM SpVoice，零依赖）
+    /// </summary>
+    public class WindowsSapiProvider : ITtsProvider
+    {
+        private dynamic? _synth;
+        private bool _available;
         public string VoiceName { get; set; } = "";
-        public bool Enabled { get; set; } = false;
-        public double Volume { get; set; } = 1.0;    // 0.0 ~ 1.0
-        public double Rate { get; set; } = 0.0;       // -10 ~ 10
+        public double Volume { get; set; } = 1.0;
+        public double Rate { get; set; } = 0.0;
+        public string Name => "Windows SAPI";
 
-        // 通义千问配置
-        public string TongyiApiKey { get; set; } = "";
-        public string TongyiVoice { get; set; } = "sambert-zhichu-v1";
-
-        public TtsService()
+        public WindowsSapiProvider()
         {
             try
             {
-                // 通过 COM 创建 SAPI SpVoice（Windows 内置，无需额外 DLL）
-                var speechType = Type.GetTypeFromProgID("SAPI.SpVoice");
-                if (speechType != null)
-                {
-                    _synth = Activator.CreateInstance(speechType);
-                    _sapiAvailable = true;
-                }
+                var t = Type.GetTypeFromProgID("SAPI.SpVoice");
+                if (t != null) { _synth = Activator.CreateInstance(t); _available = true; }
             }
-            catch
-            {
-                _sapiAvailable = false;
-            }
+            catch { }
         }
 
-        /// <summary>异步朗读文本，不等待完成</summary>
+        public bool Available => _available;
+
+        public async Task SpeakAsync(string text, CancellationToken ct)
+        {
+            if (_synth == null || !_available || string.IsNullOrWhiteSpace(text)) return;
+            await Task.Run(() =>
+            {
+                try
+                {
+                    _synth.Volume = (int)(Volume * 100);
+                    _synth.Rate = (int)Rate;
+                    if (!string.IsNullOrWhiteSpace(VoiceName))
+                    {
+                        try { _synth.Voice = _synth.GetVoices().Item(VoiceName); } catch { }
+                    }
+                    _synth.Speak(text, 0); // 0 = 同步朗读（等待完成）
+                }
+                catch { }
+            }, ct);
+        }
+
+        public void Stop()
+        {
+            try { _synth?.SpeakAsyncCancelAll?.Invoke(); } catch { }
+        }
+
+        /// <summary>扫描系统已安装的语音列表</summary>
+        public List<string> ScanVoices()
+        {
+            var result = new List<string>();
+            if (_synth == null) return result;
+            try
+            {
+                dynamic voices = _synth.GetVoices();
+                int count = voices.Count;
+                for (int i = 0; i < count; i++)
+                {
+                    try
+                    {
+                        dynamic v = voices.Item(i);
+                        string? name = v.GetAttribute("Name");
+                        if (!string.IsNullOrEmpty(name)) result.Add(name);
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            return result;
+        }
+
+        /// <summary>静态方法：扫描语音（无需实例）</summary>
+        public static List<string> ScanAllVoices()
+        {
+            try
+            {
+                var t = Type.GetTypeFromProgID("SAPI.SpVoice");
+                if (t == null) return new();
+                dynamic synth = Activator.CreateInstance(t);
+                dynamic voices = synth.GetVoices();
+                int count = voices.Count;
+                var result = new List<string>();
+                for (int i = 0; i < count; i++)
+                {
+                    try
+                    {
+                        dynamic v = voices.Item(i);
+                        string? name = v.GetAttribute("Name");
+                        if (!string.IsNullOrEmpty(name)) result.Add(name);
+                    }
+                    catch { }
+                }
+                return result;
+            }
+            catch { return new(); }
+        }
+    }
+
+    /// <summary>
+    /// 通义千问 TTS 提供者
+    /// </summary>
+    public class TongyiTtsProvider : ITtsProvider
+    {
+        private readonly HttpClient _http = new();
+        private CancellationTokenSource? _cts;
+        public string ApiKey { get; set; } = "";
+        public string VoiceModel { get; set; } = "sambert-zhichu-v1";
+        public double Volume { get; set; } = 1.0;
+        public string Name => "通义千问";
+
+        public async Task SpeakAsync(string text, CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(ApiKey) || string.IsNullOrWhiteSpace(text)) return;
+            _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            try
+            {
+                var body = new
+                {
+                    model = VoiceModel,
+                    input = new { text },
+                    parameters = new { format = "wav", sample_rate = 16000, volume = Volume }
+                };
+                var json = JsonSerializer.Serialize(body);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var req = new HttpRequestMessage(HttpMethod.Post,
+                    "https://dashscope.aliyuncs.com/api/v1/services/tts/text-to-speech")
+                { Content = content };
+                req.Headers.Add("Authorization", $"Bearer {ApiKey}");
+
+                var resp = await _http.SendAsync(req, _cts.Token);
+                resp.EnsureSuccessStatusCode();
+                var audio = await resp.Content.ReadAsByteArrayAsync();
+                if (audio.Length > 0) PlayWavData(audio);
+            }
+            catch { }
+        }
+
+        public void Stop()
+        {
+            try { _cts?.Cancel(); } catch { }
+        }
+
+        private static void PlayWavData(byte[] data)
+        {
+            var tmp = Path.GetTempFileName() + ".wav";
+            try
+            {
+                File.WriteAllBytes(tmp, data);
+                Process.Start(new ProcessStartInfo { FileName = tmp, UseShellExecute = true, Verb = "open" })?.WaitForExit();
+            }
+            finally { try { File.Delete(tmp); } catch { } }
+        }
+    }
+
+    // ===== 主服务 =====
+
+    /// <summary>
+    /// 语音朗读主服务
+    /// </summary>
+    public class TtsService : IDisposable
+    {
+        private readonly WindowsSapiProvider _sapi = new();
+        private readonly TongyiTtsProvider _tongyi = new();
+        private ITtsProvider? _active;
+        private bool _disposed;
+
+        public TtsProviderType Provider { get; set; } = TtsProviderType.WindowsSAPI;
+        public bool Enabled { get; set; } = false;
+
+        // Windows SAPI 配置
+        public string SapiVoice { get; set; } = "";
+
+        // 通义千问配置
+        public string TongyiApiKey { get; set; } = "";
+        public string TongyiVoiceModel { get; set; } = "sambert-zhichu-v1";
+
+        // 通用配置
+        public double Volume { get; set; } = 1.0;
+        public double Rate { get; set; } = 0.0;
+
+        public TtsService()
+        {
+            UpdateActiveProvider();
+        }
+
+        /// <summary>获取当前生效的提供者</summary>
+        public ITtsProvider? ActiveProvider => _active;
+
+        /// <summary>SAPI 是否可用</summary>
+        public bool SapiAvailable => _sapi.Available;
+
+        /// <summary>扫描系统语音</summary>
+        public List<string> ScanSapiVoices() => WindowsSapiProvider.ScanAllVoices();
+
+        private void UpdateActiveProvider()
+        {
+            _sapi.Volume = Volume;
+            _sapi.Rate = Rate;
+            _sapi.VoiceName = SapiVoice;
+            _tongyi.ApiKey = TongyiApiKey;
+            _tongyi.VoiceModel = TongyiVoiceModel;
+            _tongyi.Volume = Volume;
+            _active = Provider switch
+            {
+                TtsProviderType.TongyiQianwen => _tongyi,
+                _ => _sapi
+            };
+        }
+
+        /// <summary>朗读指定文本（不等待完成）</summary>
         public void Speak(string text)
         {
             if (!Enabled || string.IsNullOrWhiteSpace(text)) return;
-            if (Provider == TtsProvider.WindowsBuiltIn)
-                SpeakWindows(text);
-            else if (Provider == TtsProvider.TongyiQianwen)
-                _ = SpeakTongyiAsync(text);
+            UpdateActiveProvider();
+            _ = (_active?.SpeakAsync(text, CancellationToken.None));
         }
 
-        /// <summary>异步朗读并等待完成</summary>
+        /// <summary>朗读并等待完成</summary>
         public async Task SpeakAndWaitAsync(string text, CancellationToken ct = default)
         {
             if (!Enabled || string.IsNullOrWhiteSpace(text)) return;
-            if (Provider == TtsProvider.WindowsBuiltIn)
-            {
-                await Task.Run(() => SpeakWindows(text), ct);
-            }
-            else if (Provider == TtsProvider.TongyiQianwen)
-            {
-                await SpeakTongyiAsync(text);
-            }
+            UpdateActiveProvider();
+            if (_active != null) await _active.SpeakAsync(text, ct);
         }
 
-        /// <summary>将长文本按句分割，逐句朗读（第一句更快）</summary>
+        /// <summary>按句分割，逐句朗读（第一句立即读）</summary>
         public async Task SpeakSentencesAsync(string text, CancellationToken ct = default)
         {
             if (!Enabled || string.IsNullOrWhiteSpace(text)) return;
+            UpdateActiveProvider();
+            if (_active == null) return;
 
             var sentences = SplitSentences(text);
             foreach (var sentence in sentences)
             {
                 if (ct.IsCancellationRequested) break;
                 if (string.IsNullOrWhiteSpace(sentence)) continue;
-                await SpeakAndWaitAsync(sentence.Trim(), ct);
+                await _active.SpeakAsync(sentence.Trim(), ct);
             }
         }
 
         /// <summary>停止朗读</summary>
         public void Stop()
         {
-            try { _synth?.SpeakAsyncCancelAll?.Invoke(); } catch { }
+            _sapi.Stop();
+            _tongyi.Stop();
         }
 
-        // ===== Windows SAPI 语音 =====
-
-        private void SpeakWindows(string text)
-        {
-            if (_synth == null || !_sapiAvailable) return;
-            try
-            {
-                // 设置音量 (0-100)
-                _synth.Volume = (int)(Volume * 100);
-                // 设置语速 (-10 到 10)
-                _synth.Rate = (int)Rate;
-
-                // 选择语音
-                if (!string.IsNullOrWhiteSpace(VoiceName))
-                {
-                    try { _synth.Voice = _synth.GetVoices().Item(VoiceName); }
-                    catch { }
-                }
-
-                // 异步朗读
-                _synth.Speak(text, 1); // 1 = SVSFlagsAsync
-            }
-            catch { }
-        }
-
-        /// <summary>等待朗读完成</summary>
-        private void WaitForSpeech()
-        {
-            if (_synth == null) return;
-            try
-            {
-                while (_synth.Status.RunningState == 1) // 1 = SPRS_IS_SPEAKING
-                {
-                    Thread.Sleep(100);
-                }
-            }
-            catch { }
-        }
-
-        // ===== 通义千问语音 =====
-
-        private async Task SpeakTongyiAsync(string text)
-        {
-            if (string.IsNullOrWhiteSpace(TongyiApiKey)) return;
-            try
-            {
-                var requestBody = new
-                {
-                    model = TongyiVoice,
-                    input = new { text = text },
-                    parameters = new
-                    {
-                        format = "wav",
-                        sample_rate = 16000,
-                        volume = Volume
-                    }
-                };
-                var json = JsonSerializer.Serialize(requestBody);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                var request = new HttpRequestMessage(HttpMethod.Post,
-                    "https://dashscope.aliyuncs.com/api/v1/services/tts/text-to-speech")
-                {
-                    Content = content
-                };
-                request.Headers.Add("Authorization", $"Bearer {TongyiApiKey}");
-
-                var response = await _http.SendAsync(request);
-                response.EnsureSuccessStatusCode();
-
-                var audioBytes = await response.Content.ReadAsByteArrayAsync();
-                if (audioBytes.Length > 0)
-                {
-                    PlayWavData(audioBytes);
-                }
-            }
-            catch { }
-        }
-
-        private static void PlayWavData(byte[] wavData)
-        {
-            try
-            {
-                using var ms = new MemoryStream(wavData);
-                // 不依赖 System.Media，用 Windows API 播放
-                var tempFile = Path.GetTempFileName() + ".wav";
-                File.WriteAllBytes(tempFile, wavData);
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = tempFile,
-                    UseShellExecute = true,
-                    Verb = "open"
-                })?.WaitForExit();
-                try { File.Delete(tempFile); } catch { }
-            }
-            catch { }
-        }
-
-        // ===== 工具方法 =====
-
-        /// <summary>按句子分割文本</summary>
+        /// <summary>分割句子</summary>
         public static List<string> SplitSentences(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return new();
-
-            var result = new List<string>();
             var parts = Regex.Split(text, @"(?<=[。！？\n.!?])");
-
-            var buffer = new StringBuilder();
+            var result = new List<string>();
+            var buf = new StringBuilder();
             foreach (var part in parts)
             {
-                var trimmed = part.Trim();
-                if (string.IsNullOrEmpty(trimmed)) continue;
-
-                if (buffer.Length > 0 && trimmed.Length < 3 && !trimmed.Contains('。'))
+                var t = part.Trim();
+                if (string.IsNullOrEmpty(t)) continue;
+                if (buf.Length > 0 && t.Length < 3 && !t.Contains('。')) { buf.Append(t); continue; }
+                if (buf.Length > 0) { buf.Append(t); result.Add(buf.ToString()); buf.Clear(); }
+                else if (t.Length > 200)
                 {
-                    buffer.Append(trimmed);
-                    continue;
+                    foreach (var sub in Regex.Split(t, @"(?<=[，,；;])"))
+                        if (!string.IsNullOrWhiteSpace(sub)) result.Add(sub.Trim());
                 }
-
-                if (buffer.Length > 0)
-                {
-                    buffer.Append(trimmed);
-                    result.Add(buffer.ToString());
-                    buffer.Clear();
-                }
-                else
-                {
-                    if (trimmed.Length > 200)
-                    {
-                        var subParts = Regex.Split(trimmed, @"(?<=[，,；;])");
-                        foreach (var sub in subParts)
-                        {
-                            if (!string.IsNullOrWhiteSpace(sub))
-                                result.Add(sub.Trim());
-                        }
-                    }
-                    else
-                    {
-                        result.Add(trimmed);
-                    }
-                }
+                else result.Add(t);
             }
-
-            if (buffer.Length > 0)
-                result.Add(buffer.ToString());
-
+            if (buf.Length > 0) result.Add(buf.ToString());
             return result.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
-        }
-
-        /// <summary>获取已安装的语音列表</summary>
-        public List<string> GetInstalledVoices()
-        {
-            var voices = new List<string>();
-            if (_synth == null || !_sapiAvailable) return voices;
-            try
-            {
-                var allVoices = _synth.GetVoices();
-                foreach (var v in allVoices)
-                {
-                    try
-                    {
-                        var name = v.GetAttribute("Name") ?? v.Id;
-                        if (!string.IsNullOrEmpty(name))
-                            voices.Add(name);
-                    }
-                    catch { }
-                }
-            }
-            catch { }
-            return voices;
-        }
-
-        /// <summary>SAPI 是否可用</summary>
-        public bool IsAvailable => _sapiAvailable;
-
-        /// <summary>扫描系统已安装的语音并返回列表（静态方法，无需创建实例）</summary>
-        public static List<string> ScanInstalledVoices()
-        {
-            try
-            {
-                var speechType = Type.GetTypeFromProgID("SAPI.SpVoice");
-                if (speechType == null) return new();
-                var synth = Activator.CreateInstance(speechType);
-                var voices = new List<string>();
-                try
-                {
-                    var allVoices = synth.GetType().InvokeMember("GetVoices",
-                        BindingFlags.InvokeMethod, null, synth, null);
-                    var count = (int)allVoices.GetType().InvokeMember("Count",
-                        BindingFlags.GetProperty, null, allVoices, null);
-                    for (int i = 0; i < count; i++)
-                    {
-                        try
-                        {
-                            var voice = allVoices.GetType().InvokeMember("Item",
-                                BindingFlags.GetProperty, null, allVoices, new object[] { i });
-                            var name = voice.GetType().InvokeMember("GetAttribute",
-                                BindingFlags.InvokeMethod, null, voice, new object[] { "Name" }) as string;
-                            if (!string.IsNullOrEmpty(name))
-                                voices.Add(name);
-                        }
-                        catch { }
-                    }
-                }
-                finally
-                {
-                    try { ((IDisposable)synth).Dispose(); } catch { }
-                }
-                return voices;
-            }
-            catch { return new(); }
         }
 
         public void Dispose()
@@ -318,7 +302,6 @@ namespace VPet.Plugin.MeiChat.TTS
             if (_disposed) return;
             _disposed = true;
             Stop();
-            _http.Dispose();
         }
     }
 }

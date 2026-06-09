@@ -96,16 +96,8 @@ namespace VPet.Plugin.MeiChat
                 // 初始化 TTS 语音（容错：语音库不可用不影响插件加载）
                 try
                 {
-                    Tts = new TtsService
-                    {
-                        Enabled = Config.TtsEnabled,
-                        Provider = Config.TtsProvider == "Tongyi" ? TtsProvider.TongyiQianwen : TtsProvider.WindowsBuiltIn,
-                        VoiceName = Config.TtsVoiceName,
-                        TongyiApiKey = Config.TongyiApiKey,
-                        TongyiVoice = Config.TongyiVoice,
-                        Volume = Config.TtsVolume,
-                        Rate = Config.TtsRate
-                    };
+                    Tts = new TtsService();
+                    ApplyTtsConfig();
                 }
                 catch (Exception ex)
                 {
@@ -545,11 +537,55 @@ namespace VPet.Plugin.MeiChat
             return AppConfig.GetDefaultWorkingDirectory();
         }
 
+        /// <summary>将配置应用到 TTS 服务，自动选择默认语音</summary>
+        private void ApplyTtsConfig()
+        {
+            if (Tts == null) return;
+            Tts.Enabled = Config.TtsEnabled;
+            Tts.Provider = Config.TtsProvider == "Tongyi" ? TTS.TtsProviderType.TongyiQianwen : TTS.TtsProviderType.WindowsSAPI;
+            Tts.TongyiApiKey = Config.TongyiApiKey;
+            Tts.TongyiVoiceModel = Config.TongyiVoice;
+            Tts.Volume = Config.TtsVolume;
+            Tts.Rate = Config.TtsRate;
+
+            // 语音选择：如果有配置就用配置的，否则默认选晓晓
+            if (!string.IsNullOrWhiteSpace(Config.TtsVoiceName))
+            {
+                Tts.SapiVoice = Config.TtsVoiceName;
+            }
+            else
+            {
+                // 用户没配置过 → 自动选第一个中文语音（优先晓晓）
+                var voices = Tts.ScanSapiVoices();
+                var preferred = voices.FirstOrDefault(v =>
+                    v.Contains("Xiaoxiao", StringComparison.OrdinalIgnoreCase) ||
+                    v.Contains("晓晓", StringComparison.OrdinalIgnoreCase));
+                if (preferred != null)
+                {
+                    Tts.SapiVoice = preferred;
+                    Config.TtsVoiceName = preferred;
+                    Config.Save();
+                }
+                else
+                {
+                    // 选第一个中文语音
+                    var zhVoice = voices.FirstOrDefault(v => v.Contains("zh", StringComparison.OrdinalIgnoreCase));
+                    if (zhVoice != null)
+                    {
+                        Tts.SapiVoice = zhVoice;
+                        Config.TtsVoiceName = zhVoice;
+                        Config.Save();
+                    }
+                }
+            }
+        }
+
         private void OnConfigSaved(AppConfig newConfig)
         {
             Config = newConfig;
             Config.ConfigDirectory = _configDir;
             Config.Save();
+            ApplyTtsConfig();
             ReinitializeApiClient();
             ReinitializeAgentEngine();
         }
