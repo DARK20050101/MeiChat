@@ -68,10 +68,10 @@ namespace VPet.Plugin.MeiChat.Models
         /// <summary>是否启用语音朗读</summary>
         public bool TtsEnabled { get; set; } = false;
 
-        /// <summary>TTS 提供者: "Windows" 或 "Tongyi"</summary>
-        public string TtsProvider { get; set; } = "Windows";
+        /// <summary>TTS 提供者: "Windows" / "Edge" / "Tongyi"</summary>
+        public string TtsProvider { get; set; } = "Edge";
 
-        /// <summary>语音名称（Windows TTS）</summary>
+        /// <summary>语音名称（Windows TTS / Edge TTS）</summary>
         public string TtsVoiceName { get; set; } = "";
 
         /// <summary>通义千问 API Key</summary>

@@ -542,41 +542,33 @@ namespace VPet.Plugin.MeiChat
         {
             if (Tts == null) return;
             Tts.Enabled = Config.TtsEnabled;
-            Tts.Provider = Config.TtsProvider == "Tongyi" ? TTS.TtsProviderType.TongyiQianwen : TTS.TtsProviderType.WindowsSAPI;
+            Tts.Provider = Config.TtsProvider switch
+            {
+                "Edge" => TTS.TtsProviderType.EdgeTTS,
+                "Tongyi" => TTS.TtsProviderType.TongyiQianwen,
+                _ => TTS.TtsProviderType.WindowsSAPI
+            };
             Tts.TongyiApiKey = Config.TongyiApiKey;
             Tts.TongyiVoiceModel = Config.TongyiVoice;
             Tts.Volume = Config.TtsVolume;
             Tts.Rate = Config.TtsRate;
 
-            // 语音选择：如果有配置就用配置的，否则默认选晓晓
+            // 语音选择
             if (!string.IsNullOrWhiteSpace(Config.TtsVoiceName))
             {
-                Tts.SapiVoice = Config.TtsVoiceName;
+                if (Config.TtsProvider == "Edge")
+                    Tts.EdgeVoice = Config.TtsVoiceName;
+                else
+                    Tts.SapiVoice = Config.TtsVoiceName;
             }
             else
             {
-                // 用户没配置过 → 自动选第一个中文语音（优先晓晓）
-                var voices = Tts.ScanSapiVoices();
-                var preferred = voices.FirstOrDefault(v =>
-                    v.Contains("Xiaoxiao", StringComparison.OrdinalIgnoreCase) ||
-                    v.Contains("晓晓", StringComparison.OrdinalIgnoreCase));
-                if (preferred != null)
-                {
-                    Tts.SapiVoice = preferred;
-                    Config.TtsVoiceName = preferred;
-                    Config.Save();
-                }
-                else
-                {
-                    // 选第一个中文语音
-                    var zhVoice = voices.FirstOrDefault(v => v.Contains("zh", StringComparison.OrdinalIgnoreCase));
-                    if (zhVoice != null)
-                    {
-                        Tts.SapiVoice = zhVoice;
-                        Config.TtsVoiceName = zhVoice;
-                        Config.Save();
-                    }
-                }
+                // 首次运行，默认选 Edge 晓晓
+                Tts.EdgeVoice = "zh-CN-XiaoxiaoNeural";
+                Tts.SapiVoice = "zh-CN-XiaoxiaoNeural";
+                Config.TtsVoiceName = "zh-CN-XiaoxiaoNeural";
+                Config.TtsProvider = "Edge";
+                Config.Save();
             }
         }
 

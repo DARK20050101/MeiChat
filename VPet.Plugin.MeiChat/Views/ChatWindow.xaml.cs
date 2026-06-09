@@ -227,92 +227,45 @@ namespace VPet.Plugin.MeiChat.Views
 
             InputBox.Clear();
 
-            // 拦截指令，转发到 TalkBox 处理
-            var cmd = text.Trim().ToLower();
-            if (cmd.StartsWith("/"))
-            {
-                // 通过插件主逻辑处理指令
-                System.Threading.Tasks.Task.Run(() =>
-                {
-                    try
-                    {
-                        // 查找已注册的 TalkBox 并调用 Responded
-                        foreach (var api in _plugin.MW.TalkAPI)
-                        {
-                            if (api is DeepSeekTalkBox talkBox)
-                            {
-                                talkBox.Responded(text);
-                                break;
-                            }
-                        }
-                    }
-                    catch { }
-                });
-                _isProcessing = false;
-                BtnSend.IsEnabled = true;
-                InputBox.Focus();
-                return;
-            }
-
+            // 显示用户消息
             AppendMessage(text, isUser: true, scrollToBottom: true);
-            _messages.Add(new DeepSeekClient.ChatMessage { IsUser = true, Content = text });
-            // 同步到主历史
             _plugin.AddMessage(true, text);
 
             _isProcessing = true;
             BtnSend.IsEnabled = false;
 
-            try
+            // 所有消息都通过 TalkBox 处理（这样 AI 有工具权限、TTS、指令处理等完整能力）
+            var tcs = new System.Threading.Tasks.TaskCompletionSource<string?>();
+            System.Threading.Tasks.Task.Run(() =>
             {
-                AppendMessage("", isUser: false, scrollToBottom: true);
-                var fullText = new StringBuilder();
-
-                await _plugin.ApiClient!.SendMessageStreamAsync(
-                    _messages,
-                    onContent: chunk =>
-                    {
-                        Dispatcher.Invoke(() =>
-                        {
-                            fullText.Append(chunk);
-                            if (_streamingTextBox != null)
-                                _streamingTextBox.Text = fullText.ToString();
-                            MessageArea.ScrollToBottom();
-                        });
-                    },
-                    onFinish: _ =>
-                    {
-                        Dispatcher.Invoke(() => _streamingTextBox = null);
-                    },
-                    onError: error =>
-                    {
-                        Dispatcher.Invoke(() =>
-                        {
-                            if (_streamingTextBox != null)
-                                _streamingTextBox.Text += $"\n\n⚠️ {error}";
-                            _streamingTextBox = null;
-                        });
-                    },
-                    systemPrompt: _plugin.Config.SystemPrompt
-                );
-
-                _messages.Add(new DeepSeekClient.ChatMessage
+                try
                 {
-                    IsUser = false,
-                    Content = fullText.ToString()
-                });
-                // 同步到主历史
-                _plugin.AddMessage(false, fullText.ToString());
-            }
-            catch (Exception ex)
+                    foreach (var api in _plugin.MW.TalkAPI)
+                    {
+                        if (api is DeepSeekTalkBox talkBox)
+                        {
+                            // 用反射获取结果（TalkBox.Responded 不返回结果，但消息会通过 MW.Main.Say 显示）
+                            talkBox.Responded(text);
+                            tcs.TrySetResult("");
+                            break;
+                        }
+                    }
+                    tcs.TrySetResult("");
+                }
+                catch (Exception ex) { tcs.TrySetResult($"[错误: {ex.Message}]"); }
+            });
+
+            var result = await tcs.Task;
+            // 同步 AI 回答到长聊天框
+            var history = _plugin.GetMessageHistory();
+            if (history.Count >= 2 && history[^1] is var last && !last.IsUser)
             {
-                AppendMessage($"⚠️ {ex.Message}", isUser: false, scrollToBottom: true);
+                AppendMessage(last.Content, isUser: false, scrollToBottom: true);
             }
-            finally
-            {
-                _isProcessing = false;
-                BtnSend.IsEnabled = true;
-                InputBox.Focus();
-            }
+
+            _isProcessing = false;
+            BtnSend.IsEnabled = true;
+            InputBox.Focus();
         }
 
         public void AddAiMessage(string content)

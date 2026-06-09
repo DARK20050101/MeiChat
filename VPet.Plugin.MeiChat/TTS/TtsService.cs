@@ -11,6 +11,7 @@ namespace VPet.Plugin.MeiChat.TTS
     public enum TtsProviderType
     {
         WindowsSAPI,
+        EdgeTTS,
         TongyiQianwen
     }
 
@@ -187,6 +188,7 @@ namespace VPet.Plugin.MeiChat.TTS
     public class TtsService : IDisposable
     {
         private readonly WindowsSapiProvider _sapi = new();
+        private readonly EdgeTtsProvider _edge = new();
         private readonly TongyiTtsProvider _tongyi = new();
         private ITtsProvider? _active;
         private bool _disposed;
@@ -196,6 +198,9 @@ namespace VPet.Plugin.MeiChat.TTS
 
         // Windows SAPI 配置
         public string SapiVoice { get; set; } = "";
+
+        // Edge TTS 配置
+        public string EdgeVoice { get; set; } = "zh-CN-XiaoxiaoNeural";
 
         // 通义千问配置
         public string TongyiApiKey { get; set; } = "";
@@ -219,16 +224,23 @@ namespace VPet.Plugin.MeiChat.TTS
         /// <summary>扫描系统语音</summary>
         public List<string> ScanSapiVoices() => WindowsSapiProvider.ScanAllVoices();
 
+        /// <summary>获取 Edge TTS 语音列表</summary>
+        public static List<string> GetEdgeVoices() => EdgeTtsProvider.GetVoiceList();
+
         private void UpdateActiveProvider()
         {
             _sapi.Volume = Volume;
             _sapi.Rate = Rate;
             _sapi.VoiceName = SapiVoice;
+            _edge.VoiceName = EdgeVoice;
+            _edge.Volume = Volume;
+            _edge.Rate = Rate;
             _tongyi.ApiKey = TongyiApiKey;
             _tongyi.VoiceModel = TongyiVoiceModel;
             _tongyi.Volume = Volume;
             _active = Provider switch
             {
+                TtsProviderType.EdgeTTS => _edge,
                 TtsProviderType.TongyiQianwen => _tongyi,
                 _ => _sapi
             };
