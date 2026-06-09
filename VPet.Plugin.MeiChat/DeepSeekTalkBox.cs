@@ -20,8 +20,9 @@ namespace VPet.Plugin.MeiChat
         private TextBox? _inputBox;
         private Button? _sendBtn;
         private DateTime _lastBubbleUpdate = DateTime.MinValue;
+        private volatile int _requestId;
         private bool _isProcessing;
-        private readonly Queue<string> _messageQueue = new();
+        private CancellationTokenSource? _cts;
 
         // Agent 模式 3 小时提醒
         private DateTime _agentModeStartTime = DateTime.MinValue;
@@ -152,21 +153,21 @@ namespace VPet.Plugin.MeiChat
 
         public override void Responded(string text)
         {
+            var myId = Interlocked.Increment(ref _requestId);
             try
             {
                 if (string.IsNullOrWhiteSpace(text)) return;
 
-                // 如果正在处理中，加入队列稍后处理
+                // 如果有正在处理的任务，打断它，处理新的
                 if (_isProcessing)
                 {
-                    lock (_messageQueue)
-                    {
-                        _messageQueue.Enqueue(text);
-                    }
-                    _plugin.MW.Main.Say("我先处理完当前的，马上回答你~");
-                    return;
+                    _cts?.Cancel();
+                    _cts = null;
+                    _plugin.MW.Main.Say("我还在想上次的，先处理你这次的吧~");
+                    System.Threading.Thread.Sleep(300);
                 }
                 _isProcessing = true;
+                _cts = new CancellationTokenSource();
                 var cmd = text.Trim().ToLower();
 
                 // ===== 处理待定的模式选择 =====
@@ -228,17 +229,6 @@ namespace VPet.Plugin.MeiChat
                     _plugin.MW.Dispatcher.Invoke(() => _plugin.OpenMemoryWindow());
                     return;
                 }
-                if (cmd == "/tts")
-                {
-                    ToggleTts();
-                    return;
-                }
-                if (cmd == "/stop" || cmd == "/停")
-                {
-                    _plugin.Tts?.Stop();
-                    _plugin.MW.Main.Say("🛑 好的，不说了~");
-                    return;
-                }
                 if (cmd == "/clear")
                 {
                     _plugin.ClearHistory();
@@ -292,8 +282,7 @@ namespace VPet.Plugin.MeiChat
             }
             finally
             {
-                _isProcessing = false;
-                ProcessQueue();
+                if (myId == _requestId) _isProcessing = false;
             }
         }
 
@@ -334,271 +323,76 @@ namespace VPet.Plugin.MeiChat
                     : "每次执行命令前都会询问你"));
         }
 
-        // ===== API 客户端与引擎初始化 =====
-
-        /// <summary>确保引擎已就绪，失败时显示具体错误信息并返回 null</summary>
-        private Agent.AgentEngine? EnsureEngineReady(string context)
-        {
-            // 尝试初始化引擎（内部会修复 ApiClient 为空的问题）
-            _plugin.InitializeAgentEngine();
-
-            var engine = _plugin.AgentEngine;
-            if (engine != null) return engine;
-
-            // 引擎初始化失败，根据 ApiStatus 给出具体信息
-            if (_plugin.Config == null || string.IsNullOrWhiteSpace(_plugin.Config.ApiKey))
-            {
-                _plugin.MW.Main.Say("⚠️ 请先在设置中配置 API Key（右键桌宠 → 设置 → MeiChat）");
-            }
-            else switch (_plugin.ApiStatus)
-            {
-                case ApiConnectionStatus.Failed:
-                    _plugin.MW.Main.Say("⚠️ API 连接测试失败，请检查 API Key 是否还有余额，或 API 地址是否正确");
-                    break;
-                case ApiConnectionStatus.Checking:
-                    _plugin.MW.Main.Say("⏳ 正在验证 API 连接，请稍后再试...");
-                    break;
-                case ApiConnectionStatus.Unknown:
-                    // 还没验证过，尝试异步验证并提示
-                    _plugin.MW.Main.Say("🔍 正在测试 API 连接，请稍等...");
-                    break;
-                default:
-                    _plugin.MW.Main.Say("⚠️ API 客户端初始化异常，请检查设置中的 API 配置");
-                    break;
-            }
-            return null;
-        }
-
         // ===== 思考模式（工具可用） =====
-
-        /// <summary>格式化工具调用为友好的显示文本</summary>
-        private string FormatToolCall(string name, string argsJson)
-        {
-            try
-            {
-                var args = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(argsJson);
-                return name switch
-                {
-                    "read_file" => $"📖 读取文件: {args?.GetValueOrDefault("path") ?? "?"}",
-                    "write_file" => $"✏️ 写入文件: {args?.GetValueOrDefault("path") ?? "?"}",
-                    "edit_file" => $"🔧 修改文件: {args?.GetValueOrDefault("path") ?? "?"}",
-                    "list_directory" => $"📂 查看目录: {args?.GetValueOrDefault("path") ?? "."}",
-                    "search_code" => $"🔍 搜索: {args?.GetValueOrDefault("query") ?? "?"}",
-                    "run_command" => $"⚡ {args?.GetValueOrDefault("command") ?? "执行命令"}",
-                    "read_webpage" => $"🌐 阅读: {args?.GetValueOrDefault("url") ?? "?"}",
-                    "search_web" => $"🔎 搜索: {args?.GetValueOrDefault("query") ?? "?"}",
-                    "remember" => $"🧠 记住: {args?.GetValueOrDefault("content") ?? "?"}",
-                    "control_pet" => $"🎮 {args?.GetValueOrDefault("action") ?? "操作桌宠"}",
-                    "get_stats" => $"📊 查看统计",
-                    "set_pet_name" => $"✏️ 改名: {args?.GetValueOrDefault("name") ?? "?"}",
-                    "show_chat_history" => $"💬 查看历史记录",
-                    _ => $"🔧 {name}"
-                };
-            }
-            catch
-            {
-                return $"🔧 {name}";
-            }
-        }
 
         private void HandleAgentMessage(string text)
         {
-            var engine = EnsureEngineReady("agent");
-            if (engine == null) return;
+            var engine = _plugin.AgentEngine;
+            if (engine == null) { _plugin.MW.Main.Say("⚠️ 请先配置 API Key"); return; }
 
             engine.WorkingDirectory = _plugin.GetWorkingDirectory();
             _plugin.AddMessage(true, text);
 
-            // 订阅思考过程事件
-            Action<string, string>? onTool = null;
-            Action<string>? onThink = null;
-
-            onTool = (name, args) =>
-            {
-                try { _plugin.MW.Dispatcher.BeginInvoke(() => _plugin.MW.Main.Say(FormatToolCall(name, args))); }
-                catch { }
-            };
-            onThink = (thought) =>
-            {
-                try { _plugin.MW.Dispatcher.BeginInvoke(() => _plugin.MW.Main.Say($"💭 {thought}")); }
-                catch { }
-            };
-
-            engine.OnToolExecution += onTool;
-            engine.OnThinking += onThink;
-
-            // 显示初始思考提示
             var thinking = PickThinkingPhrase(text);
             _plugin.MW.Main.Say(thinking);
 
             try
             {
-                var result = engine.ExecuteAsync(text, CancellationToken.None).GetAwaiter().GetResult();
+                var result = engine.ExecuteAsync(text, _cts?.Token ?? CancellationToken.None).GetAwaiter().GetResult();
 
                 if (!string.IsNullOrWhiteSpace(result))
-                {
                     _plugin.MW.Main.Say(result.TrimStart());
-                    // 朗读回复
-                    _ = SpeakResponseAsync(result.TrimStart());
-                }
                 else
                     _plugin.MW.Main.Say("嗯，处理完了，有什么需要补充的吗？");
                 _plugin.AddMessage(false, result ?? "");
             }
+            catch (OperationCanceledException)
+            {
+                // 被用户打断，不处理
+            }
             catch (Exception ex)
             {
                 _plugin.ResetAgentEngine();
                 _plugin.MW.Main.Say($"抱歉出错了，已恢复状态，可以继续提问。{ex.Message}");
             }
-            finally
-            {
-                engine.OnToolExecution -= onTool;
-                engine.OnThinking -= onThink;
-            }
         }
 
-        // ===== 日常聊天（AI 自动判断是否用工具） =====
+        // ===== 日常聊天 =====
 
         private void HandleMessage(string text)
         {
-            var engine = EnsureEngineReady("chat");
-            if (engine == null) return;
+            _plugin.InitializeAgentEngine();
+            var engine = _plugin.AgentEngine;
+            if (engine == null)
+            {
+                _plugin.MW.Main.Say("⚠️ 请先在设置中配置 API Key");
+                return;
+            }
 
             engine.WorkingDirectory = _plugin.GetWorkingDirectory();
             _plugin.AddMessage(true, text);
 
-            // 订阅思考过程事件
-            Action<string, string>? onTool = null;
-            Action<string>? onThink = null;
-
-            onTool = (name, args) =>
-            {
-                try { _plugin.MW.Dispatcher.BeginInvoke(() => _plugin.MW.Main.Say(FormatToolCall(name, args))); }
-                catch { }
-            };
-            onThink = (thought) =>
-            {
-                try { _plugin.MW.Dispatcher.BeginInvoke(() => _plugin.MW.Main.Say($"💭 {thought}")); }
-                catch { }
-            };
-
-            engine.OnToolExecution += onTool;
-            engine.OnThinking += onThink;
-
-            // 显示初始思考提示
             var thinking = PickThinkingPhrase(text);
             _plugin.MW.Main.Say(thinking);
 
             try
             {
-                var result = engine.ExecuteAsync(text, CancellationToken.None).GetAwaiter().GetResult();
+                var result = engine.ExecuteAsync(text, _cts?.Token ?? CancellationToken.None).GetAwaiter().GetResult();
 
                 if (!string.IsNullOrWhiteSpace(result))
-                {
                     _plugin.MW.Main.Say(result.TrimStart());
-                    // 朗读回复
-                    _ = SpeakResponseAsync(result.TrimStart());
-                }
                 else
                     _plugin.MW.Main.Say("嗯，处理完了。");
                 _plugin.AddMessage(false, result ?? "");
+            }
+            catch (OperationCanceledException)
+            {
+                // 被用户打断
             }
             catch (Exception ex)
             {
                 _plugin.ResetAgentEngine();
                 _plugin.MW.Main.Say($"抱歉出错了，已恢复状态，可以继续提问。{ex.Message}");
-            }
-            finally
-            {
-                engine.OnToolExecution -= onTool;
-                engine.OnThinking -= onThink;
-            }
-        }
-
-        // ===== 语音朗读 =====
-
-        private void ToggleTts()
-        {
-            if (_plugin.Tts == null) return;
-            _plugin.Tts.Enabled = !_plugin.Tts.Enabled;
-            _plugin.Config.TtsEnabled = _plugin.Tts.Enabled;
-            _plugin.Config.Save();
-            var status = _plugin.Tts.Enabled ? "已开启 🔊" : "已关闭 🔇";
-            var provName = _plugin.Tts.Provider switch
-            {
-                TTS.TtsProviderType.TongyiQianwen => "通义千问",
-                TTS.TtsProviderType.CustomHTTP => "自定义TTS",
-                _ => "Edge TTS"
-            };
-            _plugin.MW.Main.Say($"语音朗读{status}\n当前使用: {provName}");
-        }
-
-        /// <summary>按句朗读回复文本（后台任务，不阻塞主流程）</summary>
-        private async Task SpeakResponseAsync(string text)
-        {
-            var tts = _plugin.Tts;
-            if (tts == null || !tts.Enabled) return;
-
-            try
-            {
-                // 先停掉之前的朗读
-                tts.Stop();
-
-                // 移除思考过程相关前缀再朗读
-                var cleanText = StripThinkingPrefix(text);
-                if (!string.IsNullOrWhiteSpace(cleanText))
-                    await tts.SpeakSentencesAsync(cleanText);
-            }
-            catch { /* TTS 失败不影响主流程 */ }
-        }
-
-        /// <summary>移除回复文本中的思考过程前缀（💭、📖等），只保留纯文本用于朗读</summary>
-        private static string StripThinkingPrefix(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text)) return text;
-
-            // 移除表情符号开头的行（思考过程展示用）
-            var lines = text.Split('\n');
-            var clean = new System.Collections.Generic.List<string>();
-            foreach (var line in lines)
-            {
-                var trimmed = line.Trim();
-                if (trimmed.Length > 0 && IsEmojiPrefix(trimmed))
-                    continue; // 跳过思考过程行
-                clean.Add(line);
-            }
-            return string.Join('\n', clean).Trim();
-        }
-
-        private static readonly HashSet<string> EmojiPrefixes = new()
-        {
-            "💭", "📖", "📂", "🔧", "✏️", "⚡", "🌐", "🔎", "🧠", "🎮", "💬", "📊", "🔍", "🩶",
-            "💙", "💚", "💜", "🧡", "❤️", "☑️", "🗑️", "📤", "🔄", "🧹"
-        };
-
-        private static bool IsEmojiPrefix(string text)
-        {
-            if (string.IsNullOrEmpty(text)) return false;
-            foreach (var prefix in EmojiPrefixes)
-            {
-                if (text.StartsWith(prefix)) return true;
-            }
-            return false;
-        }
-
-        private void ProcessQueue()
-        {
-            string? next;
-            lock (_messageQueue)
-            {
-                if (_messageQueue.Count == 0) return;
-                next = _messageQueue.Dequeue();
-            }
-            if (next != null)
-            {
-                _plugin.MW.Main.Say("好的，继续回答你上一个问题~");
-                System.Threading.Thread.Sleep(300);
-                Responded(next);
             }
         }
 
@@ -611,8 +405,6 @@ namespace VPet.Plugin.MeiChat
                        "/chat - 退出思考模式\n" +
                        "/ui 或 /long - 打开长聊天框\n" +
                        "/memory - 管理芽衣的记忆\n" +
-                       "/tts - 切换语音朗读\n" +
-                       "/stop - 暂停当前朗读\n" +
                        "/auto - 切换自动执行模式\n" +
                        "/clear - 清空历史\n" +
                        "/quiet - 安静 3 小时\n" +

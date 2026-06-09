@@ -9,20 +9,10 @@ using VPet.Plugin.MeiChat.Agent.Tools;
 using VPet.Plugin.MeiChat.Memory;
 using VPet.Plugin.MeiChat.Models;
 using VPet.Plugin.MeiChat.Schedule;
-using VPet.Plugin.MeiChat.TTS;
 using VPet.Plugin.MeiChat.Views;
 
 namespace VPet.Plugin.MeiChat
 {
-    /// <summary>API 连接状态</summary>
-    public enum ApiConnectionStatus
-    {
-        Unknown,   // 尚未验证
-        Checking,  // 正在验证
-        Connected, // 连接成功
-        Failed     // 连接失败
-    }
-
     public class Main : MainPlugin
     {
         public override string PluginName => "MeiChat";
@@ -46,8 +36,6 @@ namespace VPet.Plugin.MeiChat
         public ScheduleManager? Scheduler { get; private set; }
         /// <summary>主动互动</summary>
         public ProactiveInteraction? Proactive { get; private set; }
-        /// <summary>语音朗读服务</summary>
-        public TtsService? Tts { get; private set; }
         /// <summary>API 用量统计</summary>
         public ApiStats Stats { get; private set; } = new();
         /// <summary>是否处于 Agent 模式</summary>
@@ -60,9 +48,6 @@ namespace VPet.Plugin.MeiChat
                 Config.Save();
             }
         }
-        /// <summary>API 连接状态（启动时异步验证）</summary>
-        public ApiConnectionStatus ApiStatus { get; private set; } = ApiConnectionStatus.Unknown;
-
         /// <summary>是否自动执行命令</summary>
         public bool IsAutoMode
         {
@@ -93,31 +78,10 @@ namespace VPet.Plugin.MeiChat
                 Proactive = new ProactiveInteraction(this, Memory);
                 Stats = new ApiStats();
 
-                // 初始化 TTS 语音（容错：语音库不可用不影响插件加载）
-                try
-                {
-                    Tts = new TtsService();
-                    ApplyTtsConfig();
-
-                    // 异步检测 edge-tts 是否安装
-                    if (Config.TtsProvider == "Edge" && !TTS.EdgeTtsProvider.IsCliAvailable)
-                    {
-                        System.Diagnostics.Debug.WriteLine("[MeiChat] ⚠️ edge-tts 未安装，语音朗读不可用。请运行: pip install edge-tts");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[MeiChat] TTS初始化失败（不影响插件运行）: {ex.Message}");
-                }
-
                 // 加载历史聊天记录
                 LoadHistory();
 
                 InitializeApiClient();
-
-                // 异步验证 API 连接
-                if (ApiClient != null)
-                    _ = ValidateApiConnectionAsync();
 
                 // 注册 TalkBox
                 if (!_talkBoxRegistered)
@@ -133,20 +97,6 @@ namespace VPet.Plugin.MeiChat
         public override void GameLoaded()
         {
             base.GameLoaded();
-
-            // EndGame 销毁了 ApiClient，这里重新初始化
-            if (ApiClient == null && Config != null && !string.IsNullOrWhiteSpace(Config.ApiKey))
-            {
-                try
-                {
-                    InitializeApiClient();
-                    _ = ValidateApiConnectionAsync();
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[MeiChat] API客户端重初始化失败: {ex.Message}");
-                }
-            }
 
             // 启动作息调度和主动互动（游戏加载完成后）
             try { Scheduler?.Start(); } catch { }
@@ -329,26 +279,51 @@ namespace VPet.Plugin.MeiChat
             return window;
         }
 
-        /// <summary>
-        /// 打开记忆管理窗口
-        /// </summary>
         public MemoryWindow? OpenMemoryWindow()
         {
             if (Memory == null) return null;
 
+            // 如果已有窗口，激活并置前
             foreach (var w in MW.Windows)
             {
                 if (w is MemoryWindow memWin)
                 {
                     memWin.Activate();
+                    memWin.Topmost = true;
+                    memWin.Topmost = false; // 置前但不一直保持在最前
                     return memWin;
                 }
             }
 
+            // 创建新窗口
             var window = new MemoryWindow(Memory);
             window.Closed += (s, e) => MW.Windows.Remove(window);
             MW.Windows.Add(window);
+
+            // 定位到 VPet 主窗口附近，并确保在屏幕范围内
+            try
+            {
+                if (Application.Current?.MainWindow is Window mainWin && mainWin.Visibility == Visibility.Visible)
+                {
+                    window.Left = mainWin.Left + 30;
+                    window.Top = mainWin.Top + 30;
+                }
+            }
+            catch { }
+
+            // 确保在屏幕内
+            try
+            {
+                var wa = SystemParameters.WorkArea;
+                if (window.Left + window.Width > wa.Right) window.Left = wa.Right - window.Width - 10;
+                if (window.Left < wa.Left) window.Left = wa.Left + 10;
+                if (window.Top + window.Height > wa.Bottom) window.Top = wa.Bottom - window.Height - 10;
+                if (window.Top < wa.Top) window.Top = wa.Top + 10;
+            }
+            catch { }
+
             window.Show();
+            window.Activate();
             return window;
         }
 
@@ -365,7 +340,6 @@ namespace VPet.Plugin.MeiChat
             Scheduler?.Stop();
             Scheduler?.Dispose();
             Memory?.Save();
-            Tts?.Stop();
             ApiClient?.Dispose();
             ApiClient = null;
         }
@@ -435,45 +409,19 @@ namespace VPet.Plugin.MeiChat
                     Stats.RecordUsage(prompt, completion, cacheHit, cacheMiss);
 
                 ApiClient = client;
-                ApiStatus = ApiConnectionStatus.Unknown; // 新客户端需要重新验证
-            }
-        }
-
-        /// <summary>异步验证 API 连接，更新 ApiStatus</summary>
-        private async Task ValidateApiConnectionAsync()
-        {
-            if (ApiClient == null) return;
-            ApiStatus = ApiConnectionStatus.Checking;
-            try
-            {
-                var isValid = await ApiClient.ValidateApiKeyAsync();
-                ApiStatus = isValid ? ApiConnectionStatus.Connected : ApiConnectionStatus.Failed;
-                System.Diagnostics.Debug.WriteLine($"[MeiChat] API连接验证: {(isValid ? "成功" : "失败")}");
-            }
-            catch
-            {
-                ApiStatus = ApiConnectionStatus.Failed;
-                System.Diagnostics.Debug.WriteLine($"[MeiChat] API连接验证: 异常");
             }
         }
 
         // ===== Agent 引擎初始化 =====
 
         /// <summary>
-        /// 初始化 Agent 引擎
-        /// 如果 ApiClient 为空但配置中有 API Key，自动重试初始化
+        /// 初始化 Agent 引擎（需要在 ApiClient 可用时调用）
         /// </summary>
         public void InitializeAgentEngine()
         {
-            // 防御性：ApiClient 被 EndGame 销毁了但配置还在，重新创建
-            if (ApiClient == null && Config != null && !string.IsNullOrWhiteSpace(Config.ApiKey))
-            {
-                try { InitializeApiClient(); }
-                catch { /* 静默失败，留给上层处理 */ }
-            }
-
             if (ApiClient == null) return;
 
+            // 如果已有引擎但客户端变了，重新创建
             if (AgentEngine != null) return;
 
             ToolRegistry = new ToolRegistry();
@@ -498,7 +446,6 @@ namespace VPet.Plugin.MeiChat
             ReadMemoryTool.Manager = Memory;
             ToolRegistry.Register(new ReadMemoryTool());
             ToolRegistry.Register(new OpenMemoryWindowTool(this));
-            ToolRegistry.Register(new SetTtsTool(this));
             var fullPrompt = Config.SystemPrompt;
             if (Memory != null)
                 fullPrompt += Memory.GetMemoryContext();
@@ -543,48 +490,11 @@ namespace VPet.Plugin.MeiChat
             return AppConfig.GetDefaultWorkingDirectory();
         }
 
-        /// <summary>将配置应用到 TTS 服务，自动选择默认语音</summary>
-        private void ApplyTtsConfig()
-        {
-            if (Tts == null) return;
-            Tts.Enabled = Config.TtsEnabled;
-            Tts.Provider = Config.TtsProvider switch
-            {
-                "Tongyi" => TTS.TtsProviderType.TongyiQianwen,
-                "CustomHTTP" => TTS.TtsProviderType.CustomHTTP,
-                _ => TTS.TtsProviderType.EdgeTTS
-            };
-            Tts.CustomEndpoint = Config.CustomTtsEndpoint;
-            Tts.CustomTemplate = Config.CustomTtsTemplate;
-            Tts.CustomName = Config.CustomTtsName;
-            Tts.CustomRawAudio = Config.CustomTtsRawAudio;
-            Tts.CustomAudioField = Config.CustomTtsAudioField;
-            Tts.TongyiApiKey = Config.TongyiApiKey;
-            Tts.TongyiVoiceModel = Config.TongyiVoice;
-            Tts.Volume = Config.TtsVolume;
-            Tts.Rate = Config.TtsRate;
-
-            // 语音选择
-            if (!string.IsNullOrWhiteSpace(Config.TtsVoiceName))
-            {
-                Tts.EdgeVoice = Config.TtsVoiceName;
-            }
-            else
-            {
-                // 首次运行，默认 Edge 晓晓
-                Tts.EdgeVoice = "zh-CN-XiaoxiaoNeural";
-                Config.TtsVoiceName = "zh-CN-XiaoxiaoNeural";
-                Config.TtsProvider = "Edge";
-                Config.Save();
-            }
-        }
-
         private void OnConfigSaved(AppConfig newConfig)
         {
             Config = newConfig;
             Config.ConfigDirectory = _configDir;
             Config.Save();
-            ApplyTtsConfig();
             ReinitializeApiClient();
             ReinitializeAgentEngine();
         }

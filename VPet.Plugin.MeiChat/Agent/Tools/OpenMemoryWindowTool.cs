@@ -23,8 +23,11 @@ namespace VPet.Plugin.MeiChat.Agent.Tools
 
         public Task<ToolResult> ExecuteAsync(string argumentsJson, string workingDir, CancellationToken ct)
         {
-            _plugin.MW.Dispatcher.Invoke(() => _plugin.OpenMemoryWindow());
-            return Task.FromResult(ToolResult.Ok("已打开记忆管理窗口，你可以在里面查看、搜索、删除和导出备份~"));
+            var window = _plugin.MW.Dispatcher.Invoke(() => _plugin.OpenMemoryWindow());
+            if (window != null)
+                return Task.FromResult(ToolResult.Ok("已打开记忆管理窗口，你可以在里面查看、搜索、删除和导出备份~"));
+            else
+                return Task.FromResult(ToolResult.Fail("记忆系统未初始化，无法打开记忆窗口"));
         }
     }
 }

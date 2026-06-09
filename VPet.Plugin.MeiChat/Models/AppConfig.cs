@@ -64,43 +64,6 @@ namespace VPet.Plugin.MeiChat.Models
         /// <summary>当前使用的角色包名称 ("default" = VPet原皮, "mei" = 芽衣)</summary>
         public string PetSkin { get; set; } = "default";
 
-        // ===== TTS 语音配置 =====
-        /// <summary>是否启用语音朗读</summary>
-        public bool TtsEnabled { get; set; } = false;
-
-        /// <summary>TTS 提供者: "Edge" / "Tongyi" / "CustomHTTP"</summary>
-        public string TtsProvider { get; set; } = "Edge";
-
-        /// <summary>语音名称（Windows TTS / Edge TTS）</summary>
-        public string TtsVoiceName { get; set; } = "";
-
-        /// <summary>通义千问 API Key</summary>
-        public string TongyiApiKey { get; set; } = "";
-
-        /// <summary>通义千问语音模型</summary>
-        public string TongyiVoice { get; set; } = "sambert-zhichu-v1";
-
-        /// <summary>朗读语速 (-10 ~ 10)</summary>
-        public double TtsRate { get; set; } = 0;
-
-        /// <summary>朗读音量 (0.0 ~ 1.0)</summary>
-        public double TtsVolume { get; set; } = 1.0;
-
-        /// <summary>自定义TTS HTTP端点</summary>
-        public string CustomTtsEndpoint { get; set; } = "http://127.0.0.1:5000/tts";
-
-        /// <summary>自定义TTS请求模板（{text}会被替换）</summary>
-        public string CustomTtsTemplate { get; set; } = @"{""text"": ""{text}""}";
-
-        /// <summary>自定义TTS名称</summary>
-        public string CustomTtsName { get; set; } = "自定义TTS";
-
-        /// <summary>响应是否为原始音频流</summary>
-        public bool CustomTtsRawAudio { get; set; } = true;
-
-        /// <summary>JSON响应中的音频字段路径</summary>
-        public string CustomTtsAudioField { get; set; } = "";
-
         // ===== 方法 =====
 
         /// <summary>

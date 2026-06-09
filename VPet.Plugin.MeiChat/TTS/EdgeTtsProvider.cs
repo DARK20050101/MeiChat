@@ -1,85 +1,22 @@
 using System.Diagnostics;
 using System.IO;
+using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 
 namespace VPet.Plugin.MeiChat.TTS
 {
-    /// <summary>
-    /// Edge TTS 提供者 — 调用 edge-tts 命令行工具
-    /// 需安装: pip install edge-tts
-    /// 如未安装，会自动引导用户安装
-    /// </summary>
     public class EdgeTtsProvider : ITtsProvider
     {
         public string Name => "Edge TTS";
         public double Volume { get; set; } = 1.0;
         public double Rate { get; set; } = 0.0;
         public string VoiceName { get; set; } = "zh-CN-XiaoxiaoNeural";
+        public string LastError { get; private set; } = "";
 
-        /// <summary>edge-tts 命令名（Windows 上 pip 安装后可能在 PATH 中找不到，用 python -m）</summary>
-        private static readonly string[] EdgeTtsCommands = { "edge-tts", "edge-tts.exe", "python", "python3" };
+        private CancellationTokenSource? _currentCts;
 
-        /// <summary>edge-tts 是否已安装</summary>
-        public static bool IsCliAvailable
-        {
-            get
-            {
-                try
-                {
-                    // 尝试多种方式调用 edge-tts
-                    foreach (var cmd in EdgeTtsCommands)
-                    {
-                        try
-                        {
-                            var args = cmd == "python" || cmd == "python3"
-                                ? "-m edge_tts --help"
-                                : "--help";
-                            using var proc = Process.Start(new ProcessStartInfo
-                            {
-                                FileName = cmd,
-                                Arguments = args,
-                                UseShellExecute = false,
-                                CreateNoWindow = true,
-                                RedirectStandardOutput = true,
-                                RedirectStandardError = true
-                            });
-                            if (proc == null) continue;
-                            proc.WaitForExit(3000);
-                            if (proc.ExitCode == 0) return true;
-                        }
-                        catch { }
-                    }
-                    return false;
-                }
-                catch { return false; }
-            }
-        }
-
-        /// <summary>获取 edge-tts 命令和参数格式</summary>
-        private static (string cmd, string prefix) GetCommand()
-        {
-            // 优先用 edge-tts，不行就用 python -m
-            try
-            {
-                using var proc = Process.Start(new ProcessStartInfo
-                {
-                    FileName = "edge-tts",
-                    Arguments = "--help",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                });
-                if (proc != null) { proc.WaitForExit(2000); if (proc.ExitCode == 0) return ("edge-tts", ""); }
-            }
-            catch { }
-            return ("python", "-m edge_tts");
-        }
-
-        /// <summary>获取安装指引文本</summary>
-        public static string InstallGuide => "需要安装 edge-tts：pip install edge-tts";
-
-        private static readonly (string Voice, string Label)[] EdgeVoices = new[]
+        private static readonly (string Voice, string Label)[] EdgeVoices =
         {
             ("zh-CN-XiaoxiaoNeural",   "晓晓（女·温柔）"),
             ("zh-CN-YunxiNeural",      "云希（男·阳光）"),
@@ -101,104 +38,202 @@ namespace VPet.Plugin.MeiChat.TTS
         public static List<string> GetVoiceList()
             => EdgeVoices.Select(v => $"{v.Voice} ({v.Label})").ToList();
 
-        public static string GetLabel(string voice)
-            => EdgeVoices.FirstOrDefault(v => v.Voice == voice).Label ?? "中文语音";
-
         public async Task SpeakAsync(string text, CancellationToken ct)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
+            LastError = "";
+            _currentCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-            // 检查 edge-tts 是否安装
-            if (!IsCliAvailable)
-            {
-                Debug.WriteLine("[EdgeTTS] edge-tts 未安装，跳过朗读");
-                return;
-            }
-
-            var tmpFile = Path.GetTempFileName() + ".mp3";
             try
             {
-                var rateStr = Rate switch
-                {
-                    > 0 => $"+{Rate * 5:F0}%",
-                    < 0 => $"{Rate * 5:F0}%",
-                    _ => "+0%"
-                };
+                // 方法1: 尝试 edge-tts CLI（如果有的话）
+                var cliOk = await TryCliAsync(text, _currentCts.Token);
+                if (cliOk) return;
 
-                var (cmd, prefix) = GetCommand();
-                var args = string.IsNullOrEmpty(prefix)
-                    ? $"--voice \"{VoiceName}\" --text \"{EscapeArg(text)}\" --write-media \"{tmpFile}\" --rate \"{rateStr}\" --volume \"{(int)(Volume * 100)}\""
-                    : $"{prefix} --voice \"{VoiceName}\" --text \"{EscapeArg(text)}\" --write-media \"{tmpFile}\" --rate \"{rateStr}\" --volume \"{(int)(Volume * 100)}\"";
-
-                var psi = new ProcessStartInfo
-                {
-                    FileName = cmd,
-                    Arguments = args,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardError = true,
-                    StandardOutputEncoding = Encoding.UTF8,
-                    StandardErrorEncoding = Encoding.UTF8
-                };
-
-                using var proc = Process.Start(psi);
-                if (proc == null) return;
-
-                // 异步等待完成（支持取消）
-                using var reg = ct.Register(() => { try { proc.Kill(); } catch { } });
-                await proc.WaitForExitAsync(ct);
-
-                if (ct.IsCancellationRequested) return;
-
-                if (proc.ExitCode != 0)
-                {
-                    var err = await proc.StandardError.ReadToEndAsync();
-                    Debug.WriteLine($"[EdgeTTS] 错误: {err}");
-                    return;
-                }
-
-                // 播放生成的音频文件
-                if (File.Exists(tmpFile) && new FileInfo(tmpFile).Length > 0)
-                {
-                    PlayAudioFile(tmpFile);
-                }
+                // 方法2: WebSocket 直连
+                await TryWebSocketAsync(text, _currentCts.Token);
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[EdgeTTS] 异常: {ex.Message}");
-            }
-            finally
-            {
-                try { if (File.Exists(tmpFile)) File.Delete(tmpFile); } catch { }
+                LastError = ex.Message;
+                Debug.WriteLine($"[EdgeTTS] 全部失败: {ex.Message}");
             }
         }
 
-        public void Stop() { /* edge-tts CLI 不支持中断单次朗读 */ }
+        public void Stop() { try { _currentCts?.Cancel(); } catch { } }
 
-        private static void PlayAudioFile(string filePath)
+        // ===== CLI 方式 =====
+
+        private async Task<bool> TryCliAsync(string text, CancellationToken ct)
         {
-            using var proc = Process.Start(new ProcessStartInfo
+            try
             {
-                FileName = filePath,
-                UseShellExecute = true,
-                Verb = "open"
+                // 检测 edge-tts 是否可用
+                var (cmd, prefix) = FindCli();
+                if (cmd == null) return false;
+
+                var tmpFile = Path.GetTempFileName() + ".mp3";
+                try
+                {
+                    var rateStr = Rate switch
+                    {
+                        > 0 => $"+{Rate * 5:F0}%",
+                        < 0 => $"{Rate * 5:F0}%",
+                        _ => "+0%"
+                    };
+                    var args = prefix == null
+                        ? $"--voice \"{VoiceName}\" --text \"{EscapeArg(text)}\" --write-media \"{tmpFile}\" --rate \"{rateStr}\""
+                        : $"{prefix} --voice \"{VoiceName}\" --text \"{EscapeArg(text)}\" --write-media \"{tmpFile}\" --rate \"{rateStr}\"";
+
+                    using var proc = Process.Start(new ProcessStartInfo
+                    {
+                        FileName = cmd,
+                        Arguments = args,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardError = true
+                    });
+                    if (proc == null) return false;
+
+                    using var _ = ct.Register(() => { try { proc.Kill(); } catch { } });
+                    await proc.WaitForExitAsync(ct);
+
+                    if (proc.ExitCode == 0 && File.Exists(tmpFile) && new FileInfo(tmpFile).Length > 0)
+                    {
+                        PlayAudioFile(tmpFile);
+                        return true;
+                    }
+                    var err = await proc.StandardError.ReadToEndAsync();
+                    Debug.WriteLine($"[EdgeTTS] CLI错误: {err}");
+                    return false;
+                }
+                finally { try { if (File.Exists(tmpFile)) File.Delete(tmpFile); } catch { } }
+            }
+            catch { return false; }
+        }
+
+        private static (string? cmd, string? prefix) FindCli()
+        {
+            try
+            {
+                using var p1 = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "edge-tts", Arguments = "--help",
+                    UseShellExecute = false, CreateNoWindow = true,
+                    RedirectStandardOutput = true, RedirectStandardError = true
+                });
+                if (p1 != null) { p1.WaitForExit(2000); if (p1.ExitCode == 0) return ("edge-tts", null); }
+            }
+            catch { }
+            try
+            {
+                using var p2 = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "python", Arguments = "-m edge_tts --help",
+                    UseShellExecute = false, CreateNoWindow = true,
+                    RedirectStandardOutput = true, RedirectStandardError = true
+                });
+                if (p2 != null) { p2.WaitForExit(2000); if (p2.ExitCode == 0) return ("python", "-m edge_tts"); }
+            }
+            catch { }
+            return (null, null);
+        }
+
+        // ===== WebSocket 方式 =====
+
+        private static readonly TimeSpan WsTimeout = TimeSpan.FromSeconds(10);
+
+        private async Task TryWebSocketAsync(string text, CancellationToken ct)
+        {
+            using var ws = new ClientWebSocket();
+            ws.Options.SetRequestHeader("Origin", "https://azure.microsoft.com");
+            ws.Options.SetRequestHeader("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+
+            var connId = Guid.NewGuid().ToString("N").ToUpper();
+            var url = $"wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud" +
+                      $"?TrustedClient=1&ConnectionId={connId}";
+
+            using var tcts = new CancellationTokenSource(WsTimeout);
+            using var lcts = CancellationTokenSource.CreateLinkedTokenSource(ct, tcts.Token);
+            await ws.ConnectAsync(new Uri(url), lcts.Token);
+
+            // synthesis.context
+            var ctx = JsonSerializer.Serialize(new
+            {
+                context = new
+                {
+                    synthesis = new
+                    {
+                        audio = new
+                        {
+                            metadataoptions = new { sentenceBoundaryEnabled = "false", wordBoundaryEnabled = "false" },
+                            outputFormat = "audio-24khz-96kbitrate-mono-mp3"
+                        }
+                    }
+                }
             });
-            // 等待播放器启动
-            if (proc != null)
+            await SendWsText(ws, connId, "application/json; charset=utf-8", ctx, ct);
+
+            // SSML
+            var rateStr = Rate switch { > 0 => $"+{Rate * 5:F0}%", < 0 => $"{Rate * 5:F0}%", _ => "+0%" };
+            var ssml = $@"<speak version=""1.0"" xmlns=""http://www.w3.org/2001/10/synthesis"" xmlns:mstts=""https://www.w3.org/2001/mstts"" xml:lang=""zh-CN""><voice name=""{VoiceName}""><prosody rate=""{rateStr}"" volume=""{(int)(Volume * 100)}%"">{EscapeXml(text)}</prosody></voice></speak>";
+            await SendWsText(ws, connId, "application/ssml+xml", ssml, ct);
+
+            // 接收音频
+            var audioData = new List<byte>();
+            var buf = new byte[65536];
+            while (ws.State == WebSocketState.Open)
             {
-                proc.WaitForExit(3000);
-                if (!proc.HasExited) try { proc.Kill(); } catch { }
+                ct.ThrowIfCancellationRequested();
+                var r = await ws.ReceiveAsync(new ArraySegment<byte>(buf), ct);
+                if (r.MessageType == WebSocketMessageType.Close) break;
+                if (r.MessageType == WebSocketMessageType.Binary)
+                {
+                    var raw = new byte[r.Count];
+                    Array.Copy(buf, raw, r.Count);
+                    if (raw.Length >= 2)
+                    {
+                        int hLen = (raw[0] << 8) | raw[1];
+                        int start = 2 + Math.Min(hLen, raw.Length - 2);
+                        int aLen = raw.Length - start;
+                        if (aLen > 0) audioData.AddRange(new ArraySegment<byte>(raw, start, aLen));
+                    }
+                    if (r.EndOfMessage) break;
+                }
             }
+
+            var arr = audioData.ToArray();
+            if (arr.Length == 0) throw new Exception("未收到音频数据");
+            // 找 MP3 帧头
+            for (int i = 0; i < arr.Length - 1; i++)
+                if (arr[i] == 0xFF && (arr[i + 1] & 0xE0) == 0xE0) { PlayMp3(arr[i..]); return; }
+            PlayMp3(arr);
         }
 
-        private static string EscapeArg(string text)
+        private static async Task SendWsText(ClientWebSocket ws, string rid, string ct, string body, CancellationToken c)
         {
-            // 转义命令行参数中的特殊字符
-            return text.Replace("\"", "\\\"")
-                       .Replace("\n", " ")
-                       .Replace("\r", " ")
-                       .Trim();
+            var msg = $"X-RequestId:{rid}\r\nContent-Type:{ct}\r\n\r\n{body}";
+            await ws.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes(msg)), WebSocketMessageType.Text, true, c);
         }
+
+        // ===== 通用 =====
+
+        private static void PlayAudioFile(string path)
+        {
+            using var p = Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true, Verb = "open" });
+            if (p != null) { p.WaitForExit(3000); if (!p.HasExited) try { p.Kill(); } catch { } }
+        }
+
+        private static void PlayMp3(byte[] data)
+        {
+            var tmp = Path.GetTempFileName() + ".mp3";
+            try { File.WriteAllBytes(tmp, data); PlayAudioFile(tmp); }
+            finally { try { File.Delete(tmp); } catch { } }
+        }
+
+        private static string EscapeXml(string t) => t.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;").Replace("'", "&apos;");
+        private static string EscapeArg(string t) => t.Replace("\"", "\\\"").Replace("\n", " ").Replace("\r", " ");
     }
 }
