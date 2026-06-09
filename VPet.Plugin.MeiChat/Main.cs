@@ -98,6 +98,12 @@ namespace VPet.Plugin.MeiChat
                 {
                     Tts = new TtsService();
                     ApplyTtsConfig();
+
+                    // 异步检测 edge-tts 是否安装
+                    if (Config.TtsProvider == "Edge" && !TTS.EdgeTtsProvider.IsCliAvailable)
+                    {
+                        System.Diagnostics.Debug.WriteLine("[MeiChat] ⚠️ edge-tts 未安装，语音朗读不可用。请运行: pip install edge-tts");
+                    }
                 }
                 catch (Exception ex)
                 {
