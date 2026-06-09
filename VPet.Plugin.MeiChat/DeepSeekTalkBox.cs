@@ -223,6 +223,11 @@ namespace VPet.Plugin.MeiChat
                     _plugin.MW.Main.Say($"{stats}\n记忆条数: {memCount}");
                     return;
                 }
+                if (cmd == "/memory")
+                {
+                    _plugin.MW.Dispatcher.Invoke(() => _plugin.OpenMemoryWindow());
+                    return;
+                }
                 if (cmd == "/clear")
                 {
                     _plugin.ClearHistory();
@@ -517,6 +522,7 @@ namespace VPet.Plugin.MeiChat
                        "/agent - 切换思考模式\n" +
                        "/chat - 退出思考模式\n" +
                        "/ui 或 /long - 打开长聊天框\n" +
+                       "/memory - 管理芽衣的记忆\n" +
                        "/auto - 切换自动执行模式\n" +
                        "/clear - 清空历史\n" +
                        "/quiet - 安静 3 小时\n" +

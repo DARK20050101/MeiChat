@@ -309,6 +309,29 @@ namespace VPet.Plugin.MeiChat
             return window;
         }
 
+        /// <summary>
+        /// 打开记忆管理窗口
+        /// </summary>
+        public MemoryWindow? OpenMemoryWindow()
+        {
+            if (Memory == null) return null;
+
+            foreach (var w in MW.Windows)
+            {
+                if (w is MemoryWindow memWin)
+                {
+                    memWin.Activate();
+                    return memWin;
+                }
+            }
+
+            var window = new MemoryWindow(Memory);
+            window.Closed += (s, e) => MW.Windows.Remove(window);
+            MW.Windows.Add(window);
+            window.Show();
+            return window;
+        }
+
         public override void Save()
         {
             base.Save();

@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 
 namespace VPet.Plugin.MeiChat.Memory
@@ -122,5 +123,62 @@ namespace VPet.Plugin.MeiChat.Memory
 
         /// <summary>获取记忆统计</summary>
         public int Count => _facts.Count;
+
+        /// <summary>获取所有记忆（副本）</summary>
+        public List<MemoryFact> GetAllFacts() => new List<MemoryFact>(_facts);
+
+        /// <summary>搜索记忆</summary>
+        public List<MemoryFact> Search(string keyword)
+        {
+            if (string.IsNullOrWhiteSpace(keyword)) return GetAllFacts();
+            return _facts.Where(f =>
+                f.Content.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+                f.Type.Contains(keyword, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+
+        /// <summary>按索引删除记忆</summary>
+        public bool DeleteAt(int index)
+        {
+            if (index < 0 || index >= _facts.Count) return false;
+            _facts.RemoveAt(index);
+            Save();
+            return true;
+        }
+
+        /// <summary>批量删除</summary>
+        public int DeleteRange(IEnumerable<int> indices)
+        {
+            var sorted = indices.Where(i => i >= 0 && i < _facts.Count)
+                                .Distinct().OrderByDescending(i => i).ToList();
+            foreach (var i in sorted)
+                _facts.RemoveAt(i);
+            Save();
+            return sorted.Count;
+        }
+
+        /// <summary>清空所有记忆</summary>
+        public void ClearAll()
+        {
+            _facts.Clear();
+            Save();
+        }
+
+        /// <summary>导出记忆到 JSON 文件</summary>
+        public string Export(string filePath)
+        {
+            var json = JsonSerializer.Serialize(_facts, new JsonSerializerOptions { WriteIndented = true });
+            var dir = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+            File.WriteAllText(filePath, json);
+            return filePath;
+        }
+
+        /// <summary>获取记忆类型统计</summary>
+        public Dictionary<string, int> GetTypeStats()
+        {
+            return _facts.GroupBy(f => f.Type)
+                         .ToDictionary(g => g.Key, g => g.Count());
+        }
     }
 }
